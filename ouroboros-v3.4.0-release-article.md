@@ -11,7 +11,7 @@
 
 > 🚀 **读完这篇你能获得什么？** 了解我们如何将一个仅支持 OpenRouter 单一路由的 AI Agent 项目，改造成支持 **8 个独立模型槽位 × 任意 Provider × TTS/STT 语音 × 文件上传 × 全新 Markdown 渲染**的完整平台——39 个文件、+6,082 行代码、277 个测试零失败。以及这背后的架构决策和工程实践。
 
-![封面图](https://img.aws.xin/ouroboros-desktop/v3.4.0-banner.png)
+![封面图](https://img.aws.xin/ouroboros-desktop/v3.4.0-banner-v2.png)
 
 ---
 
@@ -64,7 +64,7 @@
 
 > 💡 **重点**：这不是 fork 后改几行配置。这是**从架构层面重新设计**了 LLM 路由、新增了整个语音系统、重写了渲染引擎、添加了文件处理能力——同时保持了对原项目的完全向后兼容。
 
-![架构全景](https://img.aws.xin/ouroboros-desktop/v3.4.0-architecture.png)
+![架构全景](https://img.aws.xin/ouroboros-desktop/v3.4.0-architecture-v2.png)
 
 ---
 
@@ -128,7 +128,7 @@ class LLMClient:
 
 > 📌 **关键设计：向后兼容。** `migrate_settings()` 自动将旧的扁平 `settings.json` 迁移到新的 provider/slot 格式。老用户升级零成本。
 
-![设置界面](https://img.aws.xin/ouroboros-desktop/v3.4.0-settings.png)
+![设置界面](https://img.aws.xin/ouroboros-desktop/v3.4.0-settings-v2.png)
 
 ---
 
@@ -175,7 +175,7 @@ class LLMClient:
 ✅ POST /api/stt HTTP 端点: 200 + 正确转写
 ```
 
-![语音与工具生态](https://img.aws.xin/ouroboros-desktop/v3.4.0-voice.png)
+![语音与工具生态](https://img.aws.xin/ouroboros-desktop/v3.4.0-voice-v2.png)
 
 ---
 
