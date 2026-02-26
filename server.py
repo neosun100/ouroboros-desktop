@@ -866,10 +866,37 @@ async def api_model_slots_get(request: Request) -> JSONResponse:
     return JSONResponse(settings.get("model_slots", {}))
 
 
-# ---------------------------------------------------------------------------
-# TTS / STT API endpoints (extracted to ouroboros/audio_api.py for P5 compliance)
-# ---------------------------------------------------------------------------
+# TTS / STT / Upload endpoints
 from ouroboros.audio_api import api_tts, api_stt, api_tts_voices
+
+async def api_upload(request: Request) -> JSONResponse:
+    """Handle file upload. Returns file info for chat context injection."""
+    import base64
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        return JSONResponse({"error": "file required"}, status_code=400)
+    content, filename = await file.read(), (file.filename or "uploaded_file")
+    size = len(content)
+    if size > 10 * 1024 * 1024:
+        return JSONResponse({"error": "File too large (max 10MB)"}, status_code=400)
+    ext = pathlib.Path(filename).suffix.lower()
+    _TEXT_EXT = {'.txt','.md','.py','.js','.ts','.json','.yaml','.yml','.toml','.cfg','.ini','.sh',
+                 '.bash','.css','.html','.xml','.csv','.log','.sql','.rs','.go','.java','.c','.cpp',
+                 '.h','.rb','.php','.swift','.kt','.r','.env','.gitignore','.dockerfile'}
+    _IMG_EXT = {'.png','.jpg','.jpeg','.gif','.webp','.bmp','.svg'}
+    result: Dict[str, Any] = {"filename": filename, "size": size, "type": "unknown"}
+    if ext in _TEXT_EXT or size < 512 * 1024:
+        try:
+            text = content.decode('utf-8')
+            result.update(type="text", content=text[:50000], truncated=len(text) > 50000)
+        except UnicodeDecodeError:
+            pass
+    if ext in _IMG_EXT:
+        _mime = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif',
+                 '.webp':'image/webp','.bmp':'image/bmp','.svg':'image/svg+xml'}
+        result.update(type="image", base64=base64.b64encode(content).decode('ascii'), mime=_mime.get(ext, 'application/octet-stream'))
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------
@@ -900,6 +927,7 @@ routes = [
     Route("/api/tts", endpoint=api_tts, methods=["POST"]),
     Route("/api/tts/voices", endpoint=api_tts_voices, methods=["GET"]),
     Route("/api/stt", endpoint=api_stt, methods=["POST"]),
+    Route("/api/upload", endpoint=api_upload, methods=["POST"]),
     WebSocketRoute("/ws", endpoint=ws_endpoint),
     Mount("/static", app=StaticFiles(directory=str(web_dir)), name="static"),
 ]

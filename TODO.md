@@ -3,98 +3,20 @@
 ## Status Legend
 - [ ] Pending
 - [x] Completed
-- [~] In Progress
 
 ---
 
-## Phase 1: TTS/STT Voice Integration (HIGH PRIORITY)
-
-### Backend
-- [ ] Add `tts` model slot to config.py (provider_id + model_id for TTS)
-- [ ] Add `stt` model slot to config.py (provider_id + model_id for STT)
-- [ ] Create `ouroboros/tools/audio.py` — TTS tool using OpenAI-compatible `/v1/audio/speech`
-- [ ] Add TTS endpoint `POST /api/tts` in server.py — accepts text, returns audio stream
-- [ ] Add STT endpoint `POST /api/stt` in server.py — accepts audio, returns text
-- [ ] Support multiple voices (alloy, echo, fable, nova, onyx, shimmer)
-- [ ] Support audio format selection (mp3, opus, aac, flac, wav)
-- [ ] Add TTS cost tracking to budget system
-
-### Frontend
-- [ ] Add speaker icon button next to each assistant message — click to play TTS
-- [ ] Add global "Auto-read responses" toggle in Settings
-- [ ] Add microphone button in chat input area — hold to record, release to send as STT
-- [ ] Add voice selector dropdown in Settings (TTS section)
-- [ ] Add audio player component with play/pause/speed controls
-- [ ] WebSocket support for streaming TTS audio chunks
-
-### Settings UI
-- [ ] Add "Voice" section in Settings page between Model Slots and Local Model
-- [ ] TTS provider + model selector (same pattern as other slots)
-- [ ] STT provider + model selector
-- [ ] Voice selection dropdown
-- [ ] Speed slider (0.25x - 4.0x)
-- [ ] Auto-read toggle
-- [ ] Test TTS button ("Preview this voice")
-
-### Testing
-- [ ] Unit tests for TTS/STT endpoint handlers
-- [ ] E2E test: TTS call with real API → verify audio bytes returned
-- [ ] E2E test: STT call with sample audio → verify transcription
-- [ ] Mock tests for audio tool registration
-
----
-
-## Phase 2: Markdown Rendering Upgrade (HIGH PRIORITY)
-
-- [ ] Replace hand-written regex `renderMarkdown()` with marked.js
-- [ ] Add highlight.js for code syntax highlighting (dark theme)
-- [ ] Add KaTeX for LaTeX math rendering
-- [ ] Add Mermaid diagram support
-- [ ] Add code block copy button
-- [ ] Add line numbers for code blocks
-- [ ] Properly handle nested lists and blockquotes
-- [ ] XSS sanitization with DOMPurify
-- [ ] Test rendering with edge cases (nested markdown, large code blocks)
-
----
-
-## Phase 3: File Upload & Document Analysis (MEDIUM PRIORITY)
-
-- [ ] Add drag-and-drop file upload zone in chat
-- [ ] Add `POST /api/upload` endpoint for file handling
-- [ ] Support image upload → auto-trigger vision analysis
-- [ ] Support text/PDF/DOCX upload → extract text, add to context
-- [ ] Show upload progress indicator
-- [ ] File preview thumbnails in chat
-- [ ] Max file size validation (configurable)
-
----
-
-## Phase 4: UI/UX Polish (MEDIUM PRIORITY)
-
-- [ ] Light/Dark theme toggle (CSS variables already support it)
-- [ ] Conversation export (JSON, Markdown)
-- [ ] Chat message search
-- [ ] Keyboard shortcuts (Ctrl+Enter to send, Esc to cancel)
-- [ ] Loading skeleton states instead of blank content
-- [ ] Toast notifications for save/error/success actions
-- [ ] Responsive layout for different window sizes
-- [ ] Improved error messages with actionable guidance
-
----
-
-## Phase 5: MCP Client Support (MEDIUM-HIGH PRIORITY)
+## Phase 5: MCP Client Support (FUTURE)
 
 - [ ] Implement MCP client protocol (Streamable HTTP)
 - [ ] MCP server configuration in Settings UI
 - [ ] Tool discovery from connected MCP servers
 - [ ] Bridge MCP tools into Ouroboros tool registry
 - [ ] MCP server health monitoring
-- [ ] Support for `@modelcontextprotocol/server-*` npm packages
 
 ---
 
-## Phase 6: Advanced Features (LOWER PRIORITY)
+## Phase 6: Advanced Features (FUTURE)
 
 - [ ] RAG with vector embeddings (ChromaDB / LanceDB)
 - [ ] Memory graph visualization on Dashboard
@@ -109,15 +31,63 @@
 
 ## Completed
 
+### v3.4.0 — Multi-Provider Architecture
 - [x] Multi-provider architecture (providers + model_slots)
-- [x] Per-slot model configuration (6 slots)
+- [x] Per-slot model configuration (8 slots: main, code, light, fallback, websearch, vision, tts, stt)
 - [x] Custom endpoint support (any OpenAI-compatible)
 - [x] Settings UI redesign (provider cards + slot dropdowns)
 - [x] Provider connection testing
 - [x] Settings migration (v1 → v2 format)
 - [x] One-click macOS build script
-- [x] 262 tests (unit + integration + E2E)
 - [x] Accessibility improvements (reduced-motion, ARIA, Firefox scrollbar)
 - [x] Setup wizard multi-provider support
 - [x] New project logo and illustrations
 - [x] README and CHANGELOG documentation
+
+### v3.4.0 — TTS/STT Voice Integration
+- [x] TTS model slot (configurable provider + model)
+- [x] STT model slot (configurable provider + model)
+- [x] POST /api/tts — streaming audio response
+- [x] POST /api/stt — audio transcription
+- [x] GET /api/tts/voices — voice list
+- [x] Speaker icon on assistant messages (play/stop TTS)
+- [x] Microphone button (hold-to-record STT)
+- [x] Auto-read responses toggle
+- [x] Voice settings section (voice selector, speed slider, test button)
+- [x] Voice settings: TTS_VOICE, TTS_SPEED, TTS_AUTO_READ, TTS_RESPONSE_FORMAT
+- [x] 6 voices supported (alloy, echo, fable, nova, onyx, shimmer)
+- [x] Live E2E verified: tts-1-hd, gpt-4o-mini-tts, whisper-1
+
+### v3.4.0 — Markdown Rendering Upgrade
+- [x] marked.js for full GFM markdown parsing
+- [x] highlight.js for code syntax highlighting (12 languages)
+- [x] KaTeX for LaTeX math rendering (block + inline)
+- [x] DOMPurify for XSS sanitization
+- [x] Code block copy button with "Copied!" feedback
+- [x] Language label on code blocks
+- [x] Custom renderer for links (target="_blank")
+- [x] Inline code styling (accent tint)
+- [x] Fallback rendering when CDN unavailable
+
+### v3.4.0 — File Upload & Document Analysis
+- [x] POST /api/upload endpoint (10MB limit)
+- [x] Text file upload → content extraction (30+ extensions)
+- [x] Image file upload → base64 encoding for vision analysis
+- [x] Drag-and-drop file upload in chat
+- [x] Upload button in chat input area
+- [x] Auto-trigger vision analysis for images
+- [x] Content preview in chat input for text files
+
+### v3.4.0 — UI/UX Polish
+- [x] Toast notification system (success/error/info/warning)
+- [x] All alert() calls replaced with toast notifications
+- [x] Keyboard shortcut: Ctrl/Cmd+Enter to send
+- [x] Keyboard shortcut: Escape to stop TTS
+- [x] Conversation export (Markdown + JSON)
+- [x] Export buttons in chat header
+
+### Testing
+- [x] 246 unit + integration tests passing
+- [x] 17 live E2E tests with real LLM API calls
+- [x] TTS/STT live verification (tts-1-hd, whisper-1, 6 voices)
+- [x] Zero credential leaks in source code

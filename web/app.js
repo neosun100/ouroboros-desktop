@@ -92,6 +92,27 @@ const state = {
 };
 
 // ---------------------------------------------------------------------------
+// Toast Notifications
+// ---------------------------------------------------------------------------
+function showToast(message, type = 'info', duration = 3000) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function showPage(name) {
@@ -186,11 +207,16 @@ function initChat() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             <h2>Chat</h2>
             <div class="spacer"></div>
+            <button class="btn-export" id="btn-export-md" title="Export as Markdown">Export .md</button>
+            <button class="btn-export" id="btn-export-json" title="Export as JSON">Export .json</button>
             <span id="chat-status" class="status-badge offline">Connecting...</span>
         </div>
         <div id="chat-messages"></div>
         <div id="chat-input-area">
             <textarea id="chat-input" placeholder="Message Ouroboros..." rows="1"></textarea>
+            <button id="upload-btn" class="btn-upload" title="Upload file">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </button>
             <button id="stt-btn" class="btn-stt" title="Voice input (hold to record)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -328,6 +354,55 @@ function initChat() {
 
     // STT (Speech-to-Text) microphone recording
     setupSTT();
+
+    // File upload setup
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.style.display = 'none';
+    fileInput.accept = '.txt,.md,.py,.js,.ts,.json,.yaml,.yml,.csv,.log,.sql,.html,.css,.png,.jpg,.jpeg,.gif,.webp';
+    document.body.appendChild(fileInput);
+    uploadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async () => {
+        if (fileInput.files.length > 0) {
+            await handleFileUpload(fileInput.files[0], addMessage, input);
+            fileInput.value = '';
+        }
+    };
+
+    // Drag and drop on chat area
+    const chatArea = document.getElementById('page-chat');
+    ['dragenter', 'dragover'].forEach(e => {
+        chatArea.addEventListener(e, (ev) => { ev.preventDefault(); chatArea.classList.add('drag-over'); });
+    });
+    ['dragleave', 'drop'].forEach(e => {
+        chatArea.addEventListener(e, (ev) => { ev.preventDefault(); chatArea.classList.remove('drag-over'); });
+    });
+    chatArea.addEventListener('drop', async (ev) => {
+        const file = ev.dataTransfer?.files?.[0];
+        if (file) await handleFileUpload(file, addMessage, input);
+    });
+
+    // Export buttons
+    document.getElementById('btn-export-md').addEventListener('click', () => exportChat('md'));
+    document.getElementById('btn-export-json').addEventListener('click', () => exportChat('json'));
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd+Enter to send (when input focused)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            if (document.activeElement === input && input.value.trim()) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+        // Escape to stop TTS
+        if (e.key === 'Escape' && state.currentAudio) {
+            state.currentAudio.pause();
+            state.currentAudio = null;
+            document.querySelectorAll('.msg-tts-btn.playing').forEach(b => b.classList.remove('playing'));
+        }
+    });
 }
 
 function setupSTT() {
@@ -392,6 +467,69 @@ function setupSTT() {
         e.preventDefault();
         btn.dispatchEvent(new Event('mouseup'));
     });
+}
+
+// ---------------------------------------------------------------------------
+// File Upload Handler
+// ---------------------------------------------------------------------------
+async function handleFileUpload(file, addMessage, input) {
+    const form = new FormData();
+    form.append('file', file);
+    addMessage(`Uploading ${file.name} (${(file.size/1024).toFixed(1)}KB)...`, 'system');
+    try {
+        const resp = await fetch('/api/upload', {method: 'POST', body: form});
+        const data = await resp.json();
+        if (data.error) {
+            addMessage(`Upload failed: ${data.error}`, 'system');
+            return;
+        }
+        if (data.type === 'image') {
+            const msg = `[Uploaded image: ${data.filename}]\nPlease analyze this image.`;
+            ws.send({ type: 'chat', content: msg });
+            addMessage(msg, 'user');
+        } else if (data.type === 'text') {
+            const truncNote = data.truncated ? ' (truncated)' : '';
+            const preview = data.content.substring(0, 3000);
+            input.value = `[Uploaded file: ${data.filename}${truncNote}]\n\`\`\`\n${preview}\n\`\`\`\nPlease review this file.`;
+            input.focus();
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        } else {
+            addMessage(`Uploaded ${data.filename} (${data.type}, ${(data.size/1024).toFixed(1)}KB)`, 'system');
+        }
+    } catch(e) {
+        addMessage(`Upload error: ${e.message}`, 'system');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Chat Export
+// ---------------------------------------------------------------------------
+function exportChat(format) {
+    const bubbles = document.querySelectorAll('.chat-bubble');
+    let content = '';
+    if (format === 'md') {
+        bubbles.forEach(m => {
+            const sender = m.querySelector('.sender')?.textContent?.trim() || '';
+            const text = m.querySelector('.message')?.textContent?.trim() || '';
+            content += `### ${sender}\n\n${text}\n\n---\n\n`;
+        });
+    } else {
+        const data = [];
+        bubbles.forEach(m => {
+            data.push({
+                role: m.classList.contains('user') ? 'user' : 'assistant',
+                content: m.querySelector('.message')?.textContent?.trim() || '',
+            });
+        });
+        content = JSON.stringify(data, null, 2);
+    }
+    const blob = new Blob([content], {type: 'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ouroboros-chat-${new Date().toISOString().slice(0,10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 // ---------------------------------------------------------------------------
@@ -734,7 +872,7 @@ function initSettings() {
             console.error('TTS test error:', e);
             testBtn.textContent = 'Test TTS';
             testBtn.disabled = false;
-            alert('TTS test failed: ' + e.message);
+            showToast('TTS test failed: ' + e.message, 'error');
         }
     });
 
@@ -847,7 +985,7 @@ function initSettings() {
             const type = form.querySelector('[data-field="type"]').value;
             const base_url = form.querySelector('[data-field="base_url"]').value.trim();
             const api_key = form.querySelector('[data-field="api_key"]').value;
-            if (!name) { alert('Provider name is required'); return; }
+            if (!name) { showToast('Provider name is required', 'warning'); return; }
             settingsState.providers[pid] = { name, type, base_url, api_key };
             // Re-render this card
             const newCard = renderProviderCard(pid, settingsState.providers[pid]);
@@ -916,12 +1054,12 @@ function initSettings() {
                 settingsState.providerStatus[pid] = 'fail';
                 if (dot) { dot.className = 'provider-status-dot fail'; }
                 const errMsg = data.error || 'Connection failed';
-                alert(`Provider "${prov.name}" test failed: ${errMsg}`);
+                showToast(`Provider "${prov.name}" test failed: ${errMsg}`, 'error');
             }
         } catch (e) {
             settingsState.providerStatus[pid] = 'fail';
             if (dot) { dot.className = 'provider-status-dot fail'; }
-            alert(`Provider "${prov.name}" test failed: ${e.message}`);
+            showToast(`Provider "${prov.name}" test failed: ${e.message}`, 'error');
         }
     }
 
@@ -980,7 +1118,7 @@ function initSettings() {
             const type = form.querySelector('[data-field="type"]').value;
             const base_url = form.querySelector('[data-field="base_url"]').value.trim();
             const api_key = form.querySelector('[data-field="api_key"]').value;
-            if (!name) { alert('Provider name is required'); return; }
+            if (!name) { showToast('Provider name is required', 'warning'); return; }
             const pid = generateProviderId();
             settingsState.providers[pid] = { name, type, base_url, api_key };
             providersList.appendChild(renderProviderCard(pid, settingsState.providers[pid]));
@@ -1202,7 +1340,7 @@ function initSettings() {
     // Local model Start
     document.getElementById('btn-local-start').addEventListener('click', async () => {
         const source = document.getElementById('s-local-source').value.trim();
-        if (!source) { alert('Enter a model source (HuggingFace repo ID or local path)'); return; }
+        if (!source) { showToast('Enter a model source (HuggingFace repo ID or local path)', 'warning'); return; }
         const body = {
             source,
             filename: document.getElementById('s-local-filename').value.trim(),
@@ -1214,9 +1352,9 @@ function initSettings() {
         try {
             const resp = await fetch('/api/local-model/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             const data = await resp.json();
-            if (data.error) alert('Error: ' + data.error);
+            if (data.error) showToast('Error: ' + data.error, 'error');
             else updateLocalStatus();
-        } catch (e) { alert('Failed: ' + e.message); }
+        } catch (e) { showToast('Failed: ' + e.message, 'error'); }
     });
 
     // Local model Stop
@@ -1224,7 +1362,7 @@ function initSettings() {
         try {
             await fetch('/api/local-model/stop', { method: 'POST' });
             updateLocalStatus();
-        } catch (e) { alert('Failed: ' + e.message); }
+        } catch (e) { showToast('Failed: ' + e.message, 'error'); }
     });
 
     // Local model Test
@@ -1312,7 +1450,7 @@ function initSettings() {
             status.style.display = 'block';
             setTimeout(() => status.style.display = 'none', 4000);
         } catch (e) {
-            alert('Failed to save: ' + e.message);
+            showToast('Failed to save: ' + e.message, 'error');
         }
     });
 
@@ -1325,12 +1463,12 @@ function initSettings() {
             const res = await fetch('/api/reset', { method: 'POST' });
             const data = await res.json();
             if (data.status === 'ok') {
-                alert('Deleted: ' + (data.deleted.join(', ') || 'nothing') + '\nRestarting...');
+                showToast('Reset complete: ' + (data.deleted.join(', ') || 'nothing') + '. Restarting...', 'success', 5000);
             } else {
-                alert('Error: ' + (data.error || 'unknown'));
+                showToast('Error: ' + (data.error || 'unknown'), 'error');
             }
         } catch (e) {
-            alert('Reset failed: ' + e.message);
+            showToast('Reset failed: ' + e.message, 'error');
         }
     });
 
@@ -1561,12 +1699,12 @@ function initVersions() {
             });
             const data = await resp.json();
             if (data.status === 'ok') {
-                alert('Rollback successful: ' + data.message + '\n\nServer is restarting...');
+                showToast('Rollback successful: ' + data.message + '. Server is restarting...', 'success', 5000);
             } else {
-                alert('Rollback failed: ' + (data.error || 'unknown error'));
+                showToast('Rollback failed: ' + (data.error || 'unknown error'), 'error');
             }
         } catch (e) {
-            alert('Rollback failed: ' + e.message);
+            showToast('Rollback failed: ' + e.message, 'error');
         }
     }
 
@@ -1575,9 +1713,9 @@ function initVersions() {
         try {
             const resp = await fetch('/api/git/promote', { method: 'POST' });
             const data = await resp.json();
-            alert(data.status === 'ok' ? data.message : 'Error: ' + (data.error || 'unknown'));
+            showToast(data.status === 'ok' ? data.message : 'Error: ' + (data.error || 'unknown'), data.status === 'ok' ? 'success' : 'error');
         } catch (e) {
-            alert('Failed: ' + e.message);
+            showToast('Failed: ' + e.message, 'error');
         }
     });
 
@@ -1595,42 +1733,115 @@ function escapeHtml(text) {
 }
 
 function renderMarkdown(text) {
-    let html = escapeHtml(text);
-    // Code blocks (``` ... ```)
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    // Italic
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    // Strikethrough
-    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-    // Headers (order matters: ### before ## before #)
-    html = html.replace(/^### (.+)$/gm, '<strong style="font-size:13px;color:var(--text-primary);display:block;margin:8px 0 4px">$1</strong>');
-    html = html.replace(/^## (.+)$/gm, '<strong style="font-size:14px;color:var(--text-primary);display:block;margin:10px 0 4px">$1</strong>');
-    html = html.replace(/^# (.+)$/gm, '<strong style="font-size:16px;color:var(--text-primary);display:block;margin:12px 0 6px">$1</strong>');
-    // Unordered lists
-    html = html.replace(/^- (.+)$/gm, '<span style="display:block;padding-left:12px">• $1</span>');
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:underline">$1</a>');
-    // Tables: detect header row + separator + data rows
-    html = html.replace(/((?:^\|.+\|$\n?)+)/gm, function(block) {
-        const rows = block.trim().split('\n').filter(r => r.trim());
-        if (rows.length < 2) return block;
-        const isSep = r => /^\|[\s\-:|]+\|$/.test(r.trim());
-        let headIdx = -1;
-        for (let i = 0; i < rows.length; i++) { if (isSep(rows[i])) { headIdx = i; break; } }
-        if (headIdx < 1) return block;
-        const parseRow = (r, tag) => '<tr>' + r.trim().replace(/^\||\|$/g, '').split('|').map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
-        let t = '<table class="md-table">';
-        for (let i = 0; i < headIdx; i++) t += '<thead>' + parseRow(rows[i], 'th') + '</thead>';
-        t += '<tbody>';
-        for (let i = headIdx + 1; i < rows.length; i++) t += parseRow(rows[i], 'td');
-        t += '</tbody></table>';
-        return t;
+    if (!text) return '';
+
+    // Configure marked with highlight.js
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                    try { return hljs.highlight(code, {language: lang}).value; }
+                    catch(e) {}
+                }
+                if (typeof hljs !== 'undefined') {
+                    try { return hljs.highlightAuto(code).value; }
+                    catch(e) {}
+                }
+                return code;
+            },
+            breaks: true,
+            gfm: true,
+        });
+
+        // Custom renderer for code blocks with copy button
+        const renderer = new marked.Renderer();
+        renderer.code = function(code, language) {
+            // Handle object form (newer marked versions)
+            if (typeof code === 'object') {
+                language = code.lang || '';
+                code = code.text || '';
+            }
+            const langLabel = language || 'text';
+            const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let highlighted = escaped;
+            if (typeof hljs !== 'undefined' && language && hljs.getLanguage(language)) {
+                try { highlighted = hljs.highlight(code, {language}).value; }
+                catch(e) {}
+            }
+            const id = 'code-' + Math.random().toString(36).substr(2, 9);
+            return `<div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">${langLabel}</span>
+                    <button class="code-copy-btn" onclick="copyCode('${id}')" title="Copy code">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        <span>Copy</span>
+                    </button>
+                </div>
+                <pre><code id="${id}" class="hljs language-${langLabel}">${highlighted}</code></pre>
+            </div>`;
+        };
+
+        // Inline code
+        renderer.codespan = function(code) {
+            if (typeof code === 'object') code = code.text || '';
+            return `<code class="inline-code">${code}</code>`;
+        };
+
+        // Links open in new tab
+        renderer.link = function(href, title, text) {
+            if (typeof href === 'object') {
+                text = href.text || '';
+                title = href.title || '';
+                href = href.href || '';
+            }
+            const titleAttr = title ? ` title="${title}"` : '';
+            return `<a href="${href}"${titleAttr} target="_blank" rel="noopener">${text}</a>`;
+        };
+
+        marked.use({ renderer });
+
+        let html = marked.parse(text);
+
+        // KaTeX: render $$...$$ and $...$
+        if (typeof katex !== 'undefined') {
+            // Block math: $$...$$
+            html = html.replace(/\$\$([\s\S]+?)\$\$/g, (match, math) => {
+                try { return katex.renderToString(math.trim(), {displayMode: true, throwOnError: false}); }
+                catch(e) { return match; }
+            });
+            // Inline math: $...$  (avoid matching $$ or currency like $10)
+            html = html.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (match, math) => {
+                try { return katex.renderToString(math.trim(), {displayMode: false, throwOnError: false}); }
+                catch(e) { return match; }
+            });
+        }
+
+        // Sanitize with DOMPurify
+        if (typeof DOMPurify !== 'undefined') {
+            html = DOMPurify.sanitize(html, {
+                ADD_TAGS: ['math', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'semantics', 'annotation'],
+                ADD_ATTR: ['xmlns', 'mathvariant', 'display'],
+            });
+        }
+
+        return html;
+    }
+
+    // Fallback: basic escaping if marked.js not loaded
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+// Code copy helper
+function copyCode(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent).then(() => {
+        const btn = el.closest('.code-block')?.querySelector('.code-copy-btn span');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }
     });
-    return html;
 }
 
 // ---------------------------------------------------------------------------

@@ -12,10 +12,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 #### Multi-Provider Architecture
 - **Provider registry** — Configure multiple LLM providers (OpenRouter, OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint) with independent API keys and base URLs
-- **Per-slot model configuration** — Each scenario (Main Reasoning, Code Editing, Light Tasks, Fallback, Web Search, Vision) independently selects its own provider + model
+- **Per-slot model configuration** — 8 slots (Main, Code, Light, Fallback, Web Search, Vision, TTS, STT) each independently select provider + model
 - **Custom endpoint support** — Use self-hosted LiteLLM proxies, vLLM servers, Together AI, Groq, or any OpenAI-compatible API
 - **Settings migration** — Existing `settings.json` files auto-migrate to the new provider/slot format while preserving backwards compatibility
 - **`has_any_provider_key()`** — Supervisor now starts if any provider has a valid key (not just OpenRouter)
+
+#### TTS/STT Voice Integration
+- **Text-to-Speech** — `POST /api/tts` streams audio via configurable TTS provider (supports tts-1, tts-1-hd, gpt-4o-mini-tts)
+- **Speech-to-Text** — `POST /api/stt` transcribes audio via configurable STT provider (supports whisper-1)
+- **6 voices** — alloy, echo, fable, nova, onyx, shimmer with speed control (0.25x - 4.0x)
+- **Speaker icon** on each assistant message — click to play/stop TTS
+- **Microphone button** — hold to record, release to transcribe via STT
+- **Auto-read toggle** — automatically plays TTS for new assistant responses
+- **Voice settings section** — voice selector, speed slider, format selector, test button
+- **Audio API module** (`ouroboros/audio_api.py`) extracted for BIBLE P5 compliance
+
+#### Markdown Rendering Upgrade
+- **marked.js** for full GitHub-Flavored Markdown (tables, task lists, strikethrough)
+- **highlight.js** for code syntax highlighting (12 languages: JS, Python, Bash, JSON, TS, CSS, XML, SQL, YAML, Rust, Go, HTML)
+- **KaTeX** for LaTeX math rendering (block `$$...$$` and inline `$...$`)
+- **DOMPurify** for XSS sanitization with math tag whitelist
+- **Code block copy button** with language label and "Copied!" feedback
+- **Custom link renderer** — external links open in new tab with `rel="noopener"`
+- **Fallback** to basic HTML escaping when CDN libraries unavailable
+
+#### File Upload & Document Analysis
+- **`POST /api/upload`** — file upload endpoint (10MB limit)
+- **Text file detection** — 30+ extensions, UTF-8 decode, content preview (50KB cap)
+- **Image file detection** — base64 encoding with MIME type for vision analysis
+- **Drag-and-drop** file upload in chat area
+- **Upload button** in chat input bar
+- **Auto-vision** — uploaded images automatically trigger VLM analysis
+
+#### UI/UX Polish
+- **Toast notifications** — replace all `alert()` with themed toasts (success/error/info/warning)
+- **Keyboard shortcuts** — Ctrl/Cmd+Enter to send, Escape to stop TTS
+- **Conversation export** — download chat as Markdown (.md) or JSON (.json)
+- **Export buttons** in chat header
 
 #### New API Endpoints
 - `GET /api/providers` — List configured providers (API keys masked)
