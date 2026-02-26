@@ -917,3 +917,54 @@ body {
     scrollbar-width: thin;
     scrollbar-color: rgba(201, 53, 69, 0.2) transparent;
 }
+
+/* TTS button on messages */
+.msg-tts-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    opacity: 0.5;
+    transition: all 0.2s;
+    vertical-align: middle;
+    margin-left: 6px;
+    line-height: 1;
+}
+.msg-tts-btn:hover { opacity: 1; color: var(--accent); }
+.msg-tts-btn.playing { color: var(--accent); opacity: 1; animation: tts-pulse 1s infinite; }
+
+@keyframes tts-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* STT microphone button */
+.btn-stt {
+    background: none;
+    border: 1px solid var(--divider);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.btn-stt:hover { color: var(--accent); border-color: var(--accent); }
+.btn-stt.recording { color: var(--red); border-color: var(--red); animation: recording-pulse 0.8s infinite; }
+.btn-stt.processing { color: var(--amber); border-color: var(--amber); }
+
+@keyframes recording-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+}
+
+/* Voice settings */
+.voice-preview-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+}

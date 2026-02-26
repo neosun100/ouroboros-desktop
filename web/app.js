@@ -87,6 +87,8 @@ const state = {
     activeFilters: { tools: true, llm: true, errors: true, tasks: true, system: false, consciousness: false },
     unreadCount: 0,
     activePage: 'chat',
+    currentAudio: null,
+    ttsAutoRead: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,53 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 });
 
 // ---------------------------------------------------------------------------
+// TTS Playback
+// ---------------------------------------------------------------------------
+async function playTTS(btn, text) {
+    if (btn.classList.contains('playing')) {
+        if (state.currentAudio) {
+            state.currentAudio.pause();
+            state.currentAudio = null;
+        }
+        btn.classList.remove('playing');
+        return;
+    }
+    // Stop any other playing audio first
+    document.querySelectorAll('.msg-tts-btn.playing').forEach(b => b.classList.remove('playing'));
+    if (state.currentAudio) {
+        state.currentAudio.pause();
+        state.currentAudio = null;
+    }
+    btn.classList.add('playing');
+    try {
+        const resp = await fetch('/api/tts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text.substring(0, 4096)})
+        });
+        if (!resp.ok) throw new Error('TTS failed');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        state.currentAudio = audio;
+        audio.onended = () => {
+            btn.classList.remove('playing');
+            URL.revokeObjectURL(url);
+            state.currentAudio = null;
+        };
+        audio.onerror = () => {
+            btn.classList.remove('playing');
+            URL.revokeObjectURL(url);
+            state.currentAudio = null;
+        };
+        audio.play();
+    } catch(e) {
+        console.error('TTS error:', e);
+        btn.classList.remove('playing');
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Chat Page
 // ---------------------------------------------------------------------------
 function initChat() {
@@ -142,6 +191,14 @@ function initChat() {
         <div id="chat-messages"></div>
         <div id="chat-input-area">
             <textarea id="chat-input" placeholder="Message Ouroboros..." rows="1"></textarea>
+            <button id="stt-btn" class="btn-stt" title="Voice input (hold to record)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+            </button>
             <button class="icon-btn" id="chat-send">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             </button>
@@ -161,10 +218,18 @@ function initChat() {
         bubble.className = `chat-bubble ${role}`;
         const sender = role === 'user' ? 'You' : 'Ouroboros';
         const rendered = role === 'assistant' ? renderMarkdown(text) : escapeHtml(text);
+        const ttsBtn = role === 'assistant'
+            ? `<button class="msg-tts-btn" title="Read aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>`
+            : '';
         bubble.innerHTML = `
-            <div class="sender">${sender}</div>
+            <div class="sender">${sender}${ttsBtn}</div>
             <div class="message">${rendered}</div>
         `;
+        // Attach TTS click handler
+        const ttsBtnEl = bubble.querySelector('.msg-tts-btn');
+        if (ttsBtnEl) {
+            ttsBtnEl.addEventListener('click', () => playTTS(ttsBtnEl, text));
+        }
         const typing = document.getElementById('typing-indicator');
         if (typing && typing.parentNode === messagesDiv) {
             messagesDiv.insertBefore(bubble, typing);
@@ -173,6 +238,7 @@ function initChat() {
         }
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
         try { sessionStorage.setItem('ouro_chat', JSON.stringify(_chatHistory.slice(-200))); } catch {}
+        return bubble;
     }
 
     // Restore chat from sessionStorage after page reload
@@ -233,10 +299,15 @@ function initChat() {
     ws.on('chat', (msg) => {
         if (msg.role === 'assistant') {
             hideTyping();
-            addMessage(msg.content, 'assistant', msg.markdown);
+            const bubble = addMessage(msg.content, 'assistant', msg.markdown);
             if (state.activePage !== 'chat') {
                 state.unreadCount++;
                 updateUnreadBadge();
+            }
+            // Auto-read TTS if enabled
+            if (state.ttsAutoRead) {
+                const ttsBtn = bubble?.querySelector('.msg-tts-btn');
+                if (ttsBtn) playTTS(ttsBtn, msg.content);
             }
         }
     });
@@ -254,6 +325,73 @@ function initChat() {
     if (_chatHistory.length === 0) {
         addMessage('Consciousness loaded.', 'assistant');
     }
+
+    // STT (Speech-to-Text) microphone recording
+    setupSTT();
+}
+
+function setupSTT() {
+    const btn = document.getElementById('stt-btn');
+    if (!btn) return;
+    let mediaRecorder = null;
+    let chunks = [];
+
+    btn.addEventListener('mousedown', async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+            mediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'});
+            chunks = [];
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(t => t.stop());
+                const blob = new Blob(chunks, {type: 'audio/webm'});
+                btn.classList.add('processing');
+                try {
+                    const form = new FormData();
+                    form.append('audio', blob, 'recording.webm');
+                    const resp = await fetch('/api/stt', {method: 'POST', body: form});
+                    const data = await resp.json();
+                    if (data.text) {
+                        const input = document.getElementById('chat-input');
+                        input.value = data.text;
+                        input.focus();
+                        // Auto-resize textarea
+                        input.style.height = 'auto';
+                        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+                    }
+                } catch(e) {
+                    console.error('STT error:', e);
+                }
+                btn.classList.remove('processing');
+            };
+            mediaRecorder.start();
+            btn.classList.add('recording');
+        } catch(e) {
+            console.error('Mic access error:', e);
+        }
+    });
+
+    btn.addEventListener('mouseup', () => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            btn.classList.remove('recording');
+        }
+    });
+    btn.addEventListener('mouseleave', () => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            btn.classList.remove('recording');
+        }
+    });
+    // Touch support for mobile
+    btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        btn.dispatchEvent(new Event('mousedown'));
+    });
+    btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        btn.dispatchEvent(new Event('mouseup'));
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +526,8 @@ function initSettings() {
         { key: 'fallback',  name: 'Fallback',        desc: 'When primary fails' },
         { key: 'websearch', name: 'Web Search',      desc: 'Web-augmented queries' },
         { key: 'vision',    name: 'Vision',          desc: 'Image understanding' },
+        { key: 'tts',       name: 'TTS',             desc: 'Text-to-speech' },
+        { key: 'stt',       name: 'STT',             desc: 'Speech-to-text' },
     ];
 
     // -- Local state for providers and model caches --
@@ -427,6 +567,40 @@ function initSettings() {
                     Model Slots
                 </div>
                 <div id="slots-list"></div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Section 2.5: Voice Settings -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    Voice (TTS / STT)
+                </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>TTS Voice</label>
+                        <select id="s-tts-voice" style="width:200px">
+                            <option value="alloy">Alloy</option>
+                            <option value="echo">Echo</option>
+                            <option value="fable">Fable</option>
+                            <option value="onyx">Onyx</option>
+                            <option value="nova" selected>Nova</option>
+                            <option value="shimmer">Shimmer</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Speed: <span id="s-tts-speed-val">1.0</span>x</label>
+                        <input id="s-tts-speed" type="range" min="0.25" max="4.0" step="0.25" value="1.0" style="width:200px">
+                    </div>
+                </div>
+                <div class="form-row" style="align-items:center;gap:12px">
+                    <div class="toggle-wrapper">
+                        <button class="toggle" id="toggle-tts-autoread"></button>
+                        <span class="toggle-label">Auto-read assistant responses</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm voice-preview-btn" id="btn-tts-test">Test TTS</button>
+                </div>
             </div>
 
             <div class="divider"></div>
@@ -509,6 +683,78 @@ function initSettings() {
         </div>
     `;
     document.getElementById('content').appendChild(page);
+
+    // -----------------------------------------------------------------------
+    // Voice settings handlers
+    // -----------------------------------------------------------------------
+    const ttsSpeedSlider = document.getElementById('s-tts-speed');
+    const ttsSpeedVal = document.getElementById('s-tts-speed-val');
+    if (ttsSpeedSlider) {
+        ttsSpeedSlider.addEventListener('input', () => {
+            ttsSpeedVal.textContent = parseFloat(ttsSpeedSlider.value).toFixed(2);
+        });
+    }
+
+    const ttsAutoReadToggle = document.getElementById('toggle-tts-autoread');
+    if (ttsAutoReadToggle) {
+        ttsAutoReadToggle.addEventListener('click', function() {
+            this.classList.toggle('on');
+            state.ttsAutoRead = this.classList.contains('on');
+        });
+    }
+
+    document.getElementById('btn-tts-test')?.addEventListener('click', async () => {
+        const testBtn = document.getElementById('btn-tts-test');
+        testBtn.textContent = 'Playing...';
+        testBtn.disabled = true;
+        try {
+            const voice = document.getElementById('s-tts-voice').value;
+            const speed = parseFloat(document.getElementById('s-tts-speed').value) || 1.0;
+            const resp = await fetch('/api/tts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text: 'Hello, I am Ouroboros. This is a test of the text to speech system.', voice, speed})
+            });
+            if (!resp.ok) throw new Error('TTS failed');
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => {
+                URL.revokeObjectURL(url);
+                testBtn.textContent = 'Test TTS';
+                testBtn.disabled = false;
+            };
+            audio.onerror = () => {
+                URL.revokeObjectURL(url);
+                testBtn.textContent = 'Test TTS';
+                testBtn.disabled = false;
+            };
+            audio.play();
+        } catch(e) {
+            console.error('TTS test error:', e);
+            testBtn.textContent = 'Test TTS';
+            testBtn.disabled = false;
+            alert('TTS test failed: ' + e.message);
+        }
+    });
+
+    // Fetch available TTS voices from API
+    fetch('/api/tts/voices').then(r => r.json()).then(data => {
+        if (data.voices && data.voices.length > 0) {
+            const sel = document.getElementById('s-tts-voice');
+            sel.innerHTML = '';
+            data.voices.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.textContent = v.name + (v.description ? ` — ${v.description}` : '');
+                sel.appendChild(opt);
+            });
+            // Re-select saved voice if available
+            if (settingsState._savedTTSVoice) {
+                sel.value = settingsState._savedTTSVoice;
+            }
+        }
+    }).catch(() => {});
 
     // -----------------------------------------------------------------------
     // Provider card rendering
@@ -911,6 +1157,20 @@ function initSettings() {
             // Populate GitHub fields
             if (s.GITHUB_TOKEN) document.getElementById('s-gh-token').value = s.GITHUB_TOKEN;
             if (s.GITHUB_REPO) document.getElementById('s-gh-repo').value = s.GITHUB_REPO;
+
+            // Populate Voice settings
+            if (s.TTS_VOICE) {
+                document.getElementById('s-tts-voice').value = s.TTS_VOICE;
+                settingsState._savedTTSVoice = s.TTS_VOICE;
+            }
+            if (s.TTS_SPEED) {
+                document.getElementById('s-tts-speed').value = s.TTS_SPEED;
+                document.getElementById('s-tts-speed-val').textContent = parseFloat(s.TTS_SPEED).toFixed(2);
+            }
+            if (s.TTS_AUTO_READ) {
+                document.getElementById('toggle-tts-autoread').classList.add('on');
+                state.ttsAutoRead = true;
+            }
         } catch (e) {
             console.error('Failed to load settings:', e);
         }
@@ -1031,6 +1291,10 @@ function initSettings() {
             OUROBOROS_HARD_TIMEOUT_SEC: parseInt(document.getElementById('s-hard-timeout').value) || 1800,
             // GitHub
             GITHUB_REPO: document.getElementById('s-gh-repo').value,
+            // Voice
+            TTS_VOICE: document.getElementById('s-tts-voice').value,
+            TTS_SPEED: parseFloat(document.getElementById('s-tts-speed').value) || 1.0,
+            TTS_AUTO_READ: document.getElementById('toggle-tts-autoread').classList.contains('on'),
         };
 
         // Only include tokens/keys if user actually edited them (not masked)

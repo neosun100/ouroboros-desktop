@@ -867,6 +867,12 @@ async def api_model_slots_get(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# TTS / STT API endpoints (extracted to ouroboros/audio_api.py for P5 compliance)
+# ---------------------------------------------------------------------------
+from ouroboros.audio_api import api_tts, api_stt, api_tts_voices
+
+
+# ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 web_dir = REPO_DIR / "web"
@@ -891,6 +897,9 @@ routes = [
     Route("/api/providers", endpoint=api_providers_list, methods=["GET"]),
     Route("/api/providers/test", endpoint=api_providers_test, methods=["POST"]),
     Route("/api/model-slots", endpoint=api_model_slots_get, methods=["GET"]),
+    Route("/api/tts", endpoint=api_tts, methods=["POST"]),
+    Route("/api/tts/voices", endpoint=api_tts_voices, methods=["GET"]),
+    Route("/api/stt", endpoint=api_stt, methods=["POST"]),
     WebSocketRoute("/ws", endpoint=ws_endpoint),
     Mount("/static", app=StaticFiles(directory=str(web_dir)), name="static"),
 ]

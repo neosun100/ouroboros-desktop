@@ -82,6 +82,8 @@ _DEFAULT_MODEL_SLOTS: Dict[str, Dict[str, str]] = {
     "fallback":  {"provider_id": "openrouter", "model_id": "google/gemini-3-flash-preview"},
     "websearch": {"provider_id": "openai",     "model_id": "gpt-5.2"},
     "vision":    {"provider_id": "openrouter", "model_id": "anthropic/claude-sonnet-4.6"},
+    "tts":       {"provider_id": "openai",     "model_id": "tts-1-hd"},
+    "stt":       {"provider_id": "openai",     "model_id": "whisper-1"},
 }
 
 SETTINGS_DEFAULTS: Dict[str, Any] = {
@@ -116,6 +118,11 @@ SETTINGS_DEFAULTS: Dict[str, Any] = {
     "USE_LOCAL_CODE": False,
     "USE_LOCAL_LIGHT": False,
     "USE_LOCAL_FALLBACK": False,
+    # --- Voice settings ---
+    "TTS_VOICE": "nova",
+    "TTS_SPEED": 1.0,
+    "TTS_AUTO_READ": False,
+    "TTS_RESPONSE_FORMAT": "mp3",
     # --- New provider + slot architecture ---
     "providers": copy.deepcopy(_DEFAULT_PROVIDERS),
     "model_slots": copy.deepcopy(_DEFAULT_MODEL_SLOTS),
