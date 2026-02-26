@@ -21,7 +21,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
         captured_messages = []
 
-        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto"):
+        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto", **kwargs):
             captured_messages.extend(messages)
             return {"content": "I see a test image."}, {"prompt_tokens": 10, "completion_tokens": 5}
 
@@ -51,7 +51,7 @@ class TestLLMVisionQuery(unittest.TestCase):
         client = LLMClient(api_key="test-key")
         captured_messages = []
 
-        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto"):
+        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto", **kwargs):
             captured_messages.extend(messages)
             return {"content": "Base64 image description."}, {}
 
@@ -76,7 +76,7 @@ class TestLLMVisionQuery(unittest.TestCase):
         client = LLMClient(api_key="test-key")
         captured_messages = []
 
-        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto"):
+        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto", **kwargs):
             captured_messages.extend(messages)
             return {"content": "Two images."}, {}
 
@@ -99,7 +99,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
         client = LLMClient(api_key="test-key")
 
-        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto"):
+        def mock_chat(messages, model, tools=None, reasoning_effort="low", max_tokens=1024, tool_choice="auto", **kwargs):
             return {"content": "Text only."}, {}
 
         client.chat = mock_chat

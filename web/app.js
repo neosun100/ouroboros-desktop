@@ -370,21 +370,73 @@ function initSettings() {
     const page = document.createElement('div');
     page.id = 'page-settings';
     page.className = 'page';
+
+    // -- Provider type presets for base URLs --
+    const PROVIDER_PRESETS = {
+        openrouter: { label: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1' },
+        openai:     { label: 'OpenAI',     base_url: 'https://api.openai.com/v1' },
+        anthropic:  { label: 'Anthropic',  base_url: 'https://api.anthropic.com' },
+        ollama:     { label: 'Ollama',     base_url: 'http://localhost:11434/v1' },
+        custom:     { label: 'Custom',     base_url: '' },
+    };
+
+    // -- Slot definitions --
+    const SLOT_DEFS = [
+        { key: 'main',      name: 'Main Reasoning',  desc: 'Primary thinking model' },
+        { key: 'code',      name: 'Code Editing',    desc: 'Code generation & edits' },
+        { key: 'light',     name: 'Light Tasks',     desc: 'Quick, cheap tasks' },
+        { key: 'fallback',  name: 'Fallback',        desc: 'When primary fails' },
+        { key: 'websearch', name: 'Web Search',      desc: 'Web-augmented queries' },
+        { key: 'vision',    name: 'Vision',          desc: 'Image understanding' },
+    ];
+
+    // -- Local state for providers and model caches --
+    const settingsState = {
+        providers: {},        // provider_id -> {name, type, base_url, api_key}
+        modelSlots: {},       // slot_key -> {provider_id, model_id}
+        providerModels: {},   // provider_id -> [model_id, ...]
+        providerStatus: {},   // provider_id -> 'ok'|'fail'|'untested'|'testing'
+        providerModelCount: {}, // provider_id -> number
+    };
+
     page.innerHTML = `
         <div class="page-header">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <h2>Settings</h2>
         </div>
         <div class="settings-scroll">
-            <div class="form-section">
-                <h3>API Keys</h3>
-                <div class="form-row"><div class="form-field"><label>OpenRouter API Key</label><input id="s-openrouter" type="password" placeholder="sk-or-..."></div></div>
-                <div class="form-row"><div class="form-field"><label>OpenAI API Key (optional)</label><input id="s-openai" type="password"></div></div>
-                <div class="form-row"><div class="form-field"><label>Anthropic API Key (optional)</label><input id="s-anthropic" type="password"></div></div>
+
+            <!-- Section 1: Providers -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    Providers
+                </div>
+                <div id="providers-list"></div>
+                <div id="add-provider-area">
+                    <button class="btn-add-provider" id="btn-add-provider">+ Add Provider</button>
+                </div>
             </div>
+
             <div class="divider"></div>
-            <div class="form-section">
-                <h3>Local Model</h3>
+
+            <!-- Section 2: Model Slots -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    Model Slots
+                </div>
+                <div id="slots-list"></div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Section 3: Local Model -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+                    Local Model
+                </div>
                 <div class="form-row">
                     <div class="form-field"><label>Model Source</label><input id="s-local-source" placeholder="bartowski/Llama-3.3-70B-Instruct-GGUF or /path/to/model.gguf" style="width:400px"></div>
                 </div>
@@ -405,32 +457,15 @@ function initSettings() {
                 <div id="local-model-status" style="margin-top:8px;font-size:13px;color:var(--text-secondary)">Status: Offline</div>
                 <div id="local-model-test-result" style="margin-top:4px;font-size:12px;color:var(--text-muted);display:none"></div>
             </div>
+
             <div class="divider"></div>
-            <div class="form-section">
-                <h3>Models</h3>
-                <div class="form-row" style="align-items:flex-end">
-                    <div class="form-field"><label>Main Model</label><input id="s-model" value="anthropic/claude-sonnet-4.6" style="width:250px"></div>
-                    <label class="local-toggle"><input type="checkbox" id="s-local-main" disabled> Local</label>
+
+            <!-- Section 4: Runtime -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    Runtime
                 </div>
-                <div class="form-row" style="align-items:flex-end">
-                    <div class="form-field"><label>Code Model</label><input id="s-model-code" value="anthropic/claude-sonnet-4.6" style="width:250px"></div>
-                    <label class="local-toggle"><input type="checkbox" id="s-local-code" disabled> Local</label>
-                </div>
-                <div class="form-row" style="align-items:flex-end">
-                    <div class="form-field"><label>Light Model</label><input id="s-model-light" value="google/gemini-3-flash-preview" style="width:250px"></div>
-                    <label class="local-toggle"><input type="checkbox" id="s-local-light" disabled> Local</label>
-                </div>
-                <div class="form-row" style="align-items:flex-end">
-                    <div class="form-field"><label>Fallback Model</label><input id="s-model-fallback" value="google/gemini-3-flash-preview" style="width:250px"></div>
-                    <label class="local-toggle"><input type="checkbox" id="s-local-fallback" disabled> Local</label>
-                </div>
-                <div class="form-row">
-                    <div class="form-field"><label>Claude Code Model</label><input id="s-claude-code-model" value="sonnet" placeholder="sonnet, opus, or full name" style="width:250px"></div>
-                </div>
-            </div>
-            <div class="divider"></div>
-            <div class="form-section">
-                <h3>Runtime</h3>
                 <div class="form-row">
                     <div class="form-field"><label>Max Workers</label><input id="s-workers" type="number" min="1" max="10" value="5" style="width:100px"></div>
                     <div class="form-field"><label>Total Budget ($)</label><input id="s-budget" type="number" min="1" value="10" style="width:120px"></div>
@@ -440,76 +475,471 @@ function initSettings() {
                     <div class="form-field"><label>Hard Timeout (s)</label><input id="s-hard-timeout" type="number" value="1800" style="width:120px"></div>
                 </div>
             </div>
+
             <div class="divider"></div>
-            <div class="form-section">
-                <h3>GitHub (optional)</h3>
+
+            <!-- Section 5: GitHub -->
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                    GitHub (optional)
+                </div>
                 <div class="form-row"><div class="form-field"><label>GitHub Token</label><input id="s-gh-token" type="password" placeholder="ghp_..."></div></div>
                 <div class="form-row"><div class="form-field"><label>GitHub Repo</label><input id="s-gh-repo" placeholder="owner/repo-name"></div></div>
             </div>
+
             <div class="divider"></div>
+
+            <!-- Save -->
             <div class="form-row">
                 <button class="btn btn-save" id="btn-save-settings">Save Settings</button>
             </div>
             <div id="settings-status" style="margin-top:8px;font-size:13px;color:var(--green);display:none"></div>
+
             <div class="divider"></div>
-            <div class="form-section">
-                <h3 style="color:var(--red)">Danger Zone</h3>
+
+            <!-- Danger Zone -->
+            <div class="settings-section">
+                <div class="settings-section-title" style="color:var(--red)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Danger Zone
+                </div>
                 <button class="btn btn-danger" id="btn-reset">Reset All Data</button>
             </div>
         </div>
     `;
     document.getElementById('content').appendChild(page);
 
-    // Load current settings
-    fetch('/api/settings').then(r => r.json()).then(s => {
-        if (s.OPENROUTER_API_KEY) document.getElementById('s-openrouter').value = s.OPENROUTER_API_KEY;
-        if (s.OPENAI_API_KEY) document.getElementById('s-openai').value = s.OPENAI_API_KEY;
-        if (s.ANTHROPIC_API_KEY) document.getElementById('s-anthropic').value = s.ANTHROPIC_API_KEY;
-        if (s.OUROBOROS_MODEL) document.getElementById('s-model').value = s.OUROBOROS_MODEL;
-        if (s.OUROBOROS_MODEL_CODE) document.getElementById('s-model-code').value = s.OUROBOROS_MODEL_CODE;
-        if (s.OUROBOROS_MODEL_LIGHT) document.getElementById('s-model-light').value = s.OUROBOROS_MODEL_LIGHT;
-        if (s.OUROBOROS_MODEL_FALLBACK) document.getElementById('s-model-fallback').value = s.OUROBOROS_MODEL_FALLBACK;
-        if (s.CLAUDE_CODE_MODEL) document.getElementById('s-claude-code-model').value = s.CLAUDE_CODE_MODEL;
-        if (s.OUROBOROS_MAX_WORKERS) document.getElementById('s-workers').value = s.OUROBOROS_MAX_WORKERS;
-        if (s.TOTAL_BUDGET) document.getElementById('s-budget').value = s.TOTAL_BUDGET;
-        if (s.OUROBOROS_SOFT_TIMEOUT_SEC) document.getElementById('s-soft-timeout').value = s.OUROBOROS_SOFT_TIMEOUT_SEC;
-        if (s.OUROBOROS_HARD_TIMEOUT_SEC) document.getElementById('s-hard-timeout').value = s.OUROBOROS_HARD_TIMEOUT_SEC;
-        if (s.GITHUB_TOKEN) document.getElementById('s-gh-token').value = s.GITHUB_TOKEN;
-        if (s.GITHUB_REPO) document.getElementById('s-gh-repo').value = s.GITHUB_REPO;
-        if (s.LOCAL_MODEL_SOURCE) document.getElementById('s-local-source').value = s.LOCAL_MODEL_SOURCE;
-        if (s.LOCAL_MODEL_FILENAME) document.getElementById('s-local-filename').value = s.LOCAL_MODEL_FILENAME;
-        if (s.LOCAL_MODEL_PORT) document.getElementById('s-local-port').value = s.LOCAL_MODEL_PORT;
-        if (s.LOCAL_MODEL_N_GPU_LAYERS != null) document.getElementById('s-local-gpu-layers').value = s.LOCAL_MODEL_N_GPU_LAYERS;
-        if (s.LOCAL_MODEL_CONTEXT_LENGTH) document.getElementById('s-local-ctx').value = s.LOCAL_MODEL_CONTEXT_LENGTH;
-        if (s.LOCAL_MODEL_CHAT_FORMAT) document.getElementById('s-local-chat-format').value = s.LOCAL_MODEL_CHAT_FORMAT;
-        document.getElementById('s-local-main').checked = s.USE_LOCAL_MAIN === true || s.USE_LOCAL_MAIN === 'True';
-        document.getElementById('s-local-code').checked = s.USE_LOCAL_CODE === true || s.USE_LOCAL_CODE === 'True';
-        document.getElementById('s-local-light').checked = s.USE_LOCAL_LIGHT === true || s.USE_LOCAL_LIGHT === 'True';
-        document.getElementById('s-local-fallback').checked = s.USE_LOCAL_FALLBACK === true || s.USE_LOCAL_FALLBACK === 'True';
-    }).catch(() => {});
+    // -----------------------------------------------------------------------
+    // Provider card rendering
+    // -----------------------------------------------------------------------
+    const providersList = document.getElementById('providers-list');
 
-    let localStatusInterval = null;
+    function generateProviderId() {
+        return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    function renderProviderCard(pid, prov) {
+        const card = document.createElement('div');
+        card.className = 'provider-card';
+        card.dataset.pid = pid;
+
+        const statusCls = settingsState.providerStatus[pid] || 'untested';
+        const modelCount = settingsState.providerModelCount[pid];
+        const modelCountHtml = modelCount != null ? `<span class="provider-model-count">${modelCount} models</span>` : '';
+
+        card.innerHTML = `
+            <div class="provider-card-header">
+                <div class="provider-status-dot ${statusCls}" data-dot="${pid}"></div>
+                <div class="provider-card-info">
+                    <div class="provider-card-name">
+                        ${escapeHtml(prov.name)}
+                        <span class="provider-type-badge">${escapeHtml(prov.type || 'custom')}</span>
+                        ${modelCountHtml}
+                    </div>
+                    <div class="provider-card-meta">
+                        <span><code>${escapeHtml(prov.base_url || '')}</code></span>
+                        <span>Key: ${escapeHtml(prov.api_key || '(none)')}</span>
+                    </div>
+                </div>
+                <div class="provider-card-actions">
+                    <button class="btn btn-primary btn-sm" data-action="test">Test</button>
+                    <button class="btn btn-default btn-sm" data-action="edit">Edit</button>
+                    <button class="btn btn-danger btn-sm" data-action="remove" style="animation:none">Remove</button>
+                </div>
+            </div>
+            <div class="provider-edit-form" data-form="${pid}">
+                <div class="form-row">
+                    <div class="form-field"><label>Name</label><input data-field="name" value="${escapeHtml(prov.name || '')}" style="width:180px"></div>
+                    <div class="form-field">
+                        <label>Type</label>
+                        <select data-field="type" style="width:150px">
+                            ${Object.entries(PROVIDER_PRESETS).map(([k, v]) =>
+                                `<option value="${k}" ${prov.type === k ? 'selected' : ''}>${v.label}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>Base URL</label><input data-field="base_url" value="${escapeHtml(prov.base_url || '')}" style="width:400px"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>API Key</label><input data-field="api_key" type="password" value="${escapeHtml(prov.api_key || '')}" style="width:400px" placeholder="Enter API key"></div>
+                </div>
+                <div class="form-row" style="gap:8px">
+                    <button class="btn btn-save btn-sm" data-action="save-edit">Save</button>
+                    <button class="btn btn-default btn-sm" data-action="cancel-edit">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        // Type select -> auto-fill base_url
+        const typeSelect = card.querySelector('select[data-field="type"]');
+        const baseUrlInput = card.querySelector('input[data-field="base_url"]');
+        typeSelect.addEventListener('change', () => {
+            const preset = PROVIDER_PRESETS[typeSelect.value];
+            if (preset && preset.base_url) {
+                baseUrlInput.value = preset.base_url;
+            }
+        });
+
+        // Action buttons
+        card.querySelector('[data-action="test"]').addEventListener('click', () => testProvider(pid));
+        card.querySelector('[data-action="edit"]').addEventListener('click', () => {
+            const form = card.querySelector('.provider-edit-form');
+            form.classList.toggle('visible');
+        });
+        card.querySelector('[data-action="remove"]').addEventListener('click', () => {
+            if (!confirm(`Remove provider "${prov.name}"?`)) return;
+            delete settingsState.providers[pid];
+            card.remove();
+            refreshSlotProviderDropdowns();
+        });
+        card.querySelector('[data-action="save-edit"]').addEventListener('click', () => {
+            const form = card.querySelector('.provider-edit-form');
+            const name = form.querySelector('[data-field="name"]').value.trim();
+            const type = form.querySelector('[data-field="type"]').value;
+            const base_url = form.querySelector('[data-field="base_url"]').value.trim();
+            const api_key = form.querySelector('[data-field="api_key"]').value;
+            if (!name) { alert('Provider name is required'); return; }
+            settingsState.providers[pid] = { name, type, base_url, api_key };
+            // Re-render this card
+            const newCard = renderProviderCard(pid, settingsState.providers[pid]);
+            card.replaceWith(newCard);
+            refreshSlotProviderDropdowns();
+        });
+        card.querySelector('[data-action="cancel-edit"]').addEventListener('click', () => {
+            card.querySelector('.provider-edit-form').classList.remove('visible');
+        });
+
+        return card;
+    }
+
+    function renderAllProviders() {
+        providersList.innerHTML = '';
+        for (const [pid, prov] of Object.entries(settingsState.providers)) {
+            providersList.appendChild(renderProviderCard(pid, prov));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Provider test
+    // -----------------------------------------------------------------------
+    async function testProvider(pid) {
+        const prov = settingsState.providers[pid];
+        if (!prov) return;
+
+        // Set testing state
+        settingsState.providerStatus[pid] = 'testing';
+        const dot = document.querySelector(`[data-dot="${pid}"]`);
+        if (dot) { dot.className = 'provider-status-dot testing'; }
+
+        try {
+            const resp = await fetch('/api/providers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: prov.type,
+                    base_url: prov.base_url,
+                    api_key: prov.api_key,
+                }),
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                settingsState.providerStatus[pid] = 'ok';
+                settingsState.providerModels[pid] = data.models || [];
+                settingsState.providerModelCount[pid] = data.count || data.models?.length || 0;
+                if (dot) {
+                    dot.className = 'provider-status-dot ok';
+                }
+                // Update model count display
+                const card = dot?.closest('.provider-card');
+                const nameEl = card?.querySelector('.provider-card-name');
+                if (nameEl) {
+                    let countSpan = nameEl.querySelector('.provider-model-count');
+                    if (!countSpan) {
+                        countSpan = document.createElement('span');
+                        countSpan.className = 'provider-model-count';
+                        nameEl.appendChild(countSpan);
+                    }
+                    countSpan.textContent = `${settingsState.providerModelCount[pid]} models`;
+                }
+                // Refresh datalists for model slots
+                refreshSlotDatalist(pid);
+            } else {
+                settingsState.providerStatus[pid] = 'fail';
+                if (dot) { dot.className = 'provider-status-dot fail'; }
+                const errMsg = data.error || 'Connection failed';
+                alert(`Provider "${prov.name}" test failed: ${errMsg}`);
+            }
+        } catch (e) {
+            settingsState.providerStatus[pid] = 'fail';
+            if (dot) { dot.className = 'provider-status-dot fail'; }
+            alert(`Provider "${prov.name}" test failed: ${e.message}`);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Add provider
+    // -----------------------------------------------------------------------
+    document.getElementById('btn-add-provider').addEventListener('click', () => {
+        const addArea = document.getElementById('add-provider-area');
+        // Check if form already open
+        if (addArea.querySelector('.provider-edit-form')) return;
+
+        const form = document.createElement('div');
+        form.className = 'provider-edit-form visible';
+        form.style.background = 'var(--bg-card)';
+        form.style.border = '1px solid rgba(255,255,255,0.08)';
+        form.style.borderRadius = 'var(--radius)';
+        form.style.padding = '16px';
+        form.style.marginBottom = '10px';
+        form.innerHTML = `
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-primary)">New Provider</div>
+            <div class="form-row">
+                <div class="form-field"><label>Name</label><input data-field="name" placeholder="My Provider" style="width:180px"></div>
+                <div class="form-field">
+                    <label>Type</label>
+                    <select data-field="type" style="width:150px">
+                        ${Object.entries(PROVIDER_PRESETS).map(([k, v]) =>
+                            `<option value="${k}">${v.label}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-field"><label>Base URL</label><input data-field="base_url" value="${PROVIDER_PRESETS.openrouter.base_url}" style="width:400px"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-field"><label>API Key</label><input data-field="api_key" type="password" placeholder="Enter API key" style="width:400px"></div>
+            </div>
+            <div class="form-row" style="gap:8px">
+                <button class="btn btn-save btn-sm" data-action="save-new">Save</button>
+                <button class="btn btn-default btn-sm" data-action="cancel-new">Cancel</button>
+            </div>
+        `;
+
+        // Type -> auto-fill base_url
+        const typeSelect = form.querySelector('select[data-field="type"]');
+        const baseUrlInput = form.querySelector('input[data-field="base_url"]');
+        typeSelect.addEventListener('change', () => {
+            const preset = PROVIDER_PRESETS[typeSelect.value];
+            if (preset && preset.base_url) {
+                baseUrlInput.value = preset.base_url;
+            }
+        });
+
+        form.querySelector('[data-action="save-new"]').addEventListener('click', () => {
+            const name = form.querySelector('[data-field="name"]').value.trim();
+            const type = form.querySelector('[data-field="type"]').value;
+            const base_url = form.querySelector('[data-field="base_url"]').value.trim();
+            const api_key = form.querySelector('[data-field="api_key"]').value;
+            if (!name) { alert('Provider name is required'); return; }
+            const pid = generateProviderId();
+            settingsState.providers[pid] = { name, type, base_url, api_key };
+            providersList.appendChild(renderProviderCard(pid, settingsState.providers[pid]));
+            form.remove();
+            refreshSlotProviderDropdowns();
+        });
+
+        form.querySelector('[data-action="cancel-new"]').addEventListener('click', () => {
+            form.remove();
+        });
+
+        addArea.insertBefore(form, addArea.firstChild);
+    });
+
+    // -----------------------------------------------------------------------
+    // Model Slots rendering
+    // -----------------------------------------------------------------------
+    const slotsList = document.getElementById('slots-list');
+
+    function renderSlots() {
+        slotsList.innerHTML = '';
+        for (const slot of SLOT_DEFS) {
+            const slotData = settingsState.modelSlots[slot.key] || {};
+            const row = document.createElement('div');
+            row.className = 'slot-config';
+            row.dataset.slot = slot.key;
+
+            row.innerHTML = `
+                <div class="slot-label">
+                    <div class="slot-label-name">${escapeHtml(slot.name)}</div>
+                    <div class="slot-label-desc">${escapeHtml(slot.desc)}</div>
+                </div>
+                <select class="slot-provider-select" data-slot="${slot.key}">
+                    <option value="">(none)</option>
+                </select>
+                <div style="position:relative">
+                    <input class="slot-model-input" data-slot="${slot.key}" list="models-${slot.key}" placeholder="Model ID" value="${escapeHtml(slotData.model_id || '')}">
+                    <datalist id="models-${slot.key}"></datalist>
+                </div>
+            `;
+
+            const provSelect = row.querySelector('.slot-provider-select');
+            populateProviderDropdown(provSelect, slotData.provider_id || '');
+
+            // When provider changes, fetch models for that provider
+            provSelect.addEventListener('change', () => {
+                const selectedPid = provSelect.value;
+                if (selectedPid) {
+                    fetchModelsForProvider(selectedPid, slot.key);
+                } else {
+                    const dl = document.getElementById(`models-${slot.key}`);
+                    if (dl) dl.innerHTML = '';
+                }
+            });
+
+            slotsList.appendChild(row);
+        }
+    }
+
+    function populateProviderDropdown(selectEl, selectedPid) {
+        // Keep the (none) option, rebuild the rest
+        selectEl.innerHTML = '<option value="">(none)</option>';
+        for (const [pid, prov] of Object.entries(settingsState.providers)) {
+            const opt = document.createElement('option');
+            opt.value = pid;
+            opt.textContent = prov.name;
+            if (pid === selectedPid) opt.selected = true;
+            selectEl.appendChild(opt);
+        }
+    }
+
+    function refreshSlotProviderDropdowns() {
+        slotsList.querySelectorAll('.slot-provider-select').forEach(sel => {
+            const currentVal = sel.value;
+            populateProviderDropdown(sel, currentVal);
+        });
+    }
+
+    function refreshSlotDatalist(pid) {
+        const models = settingsState.providerModels[pid] || [];
+        // Update any slot datalist whose provider matches
+        slotsList.querySelectorAll('.slot-provider-select').forEach(sel => {
+            if (sel.value === pid) {
+                const slotKey = sel.dataset.slot;
+                const dl = document.getElementById(`models-${slotKey}`);
+                if (dl) {
+                    dl.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">`).join('');
+                }
+            }
+        });
+    }
+
+    async function fetchModelsForProvider(pid, slotKey) {
+        // If we already have cached models, use them
+        if (settingsState.providerModels[pid]?.length) {
+            const dl = document.getElementById(`models-${slotKey}`);
+            if (dl) {
+                dl.innerHTML = settingsState.providerModels[pid].map(m => `<option value="${escapeHtml(m)}">`).join('');
+            }
+            return;
+        }
+        // Otherwise fetch via test endpoint
+        const prov = settingsState.providers[pid];
+        if (!prov) return;
+        try {
+            const resp = await fetch('/api/providers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: prov.type,
+                    base_url: prov.base_url,
+                    api_key: prov.api_key,
+                }),
+            });
+            const data = await resp.json();
+            if (data.status === 'ok' && data.models) {
+                settingsState.providerModels[pid] = data.models;
+                settingsState.providerModelCount[pid] = data.count || data.models.length;
+                settingsState.providerStatus[pid] = 'ok';
+                const dot = document.querySelector(`[data-dot="${pid}"]`);
+                if (dot) dot.className = 'provider-status-dot ok';
+                const dl = document.getElementById(`models-${slotKey}`);
+                if (dl) {
+                    dl.innerHTML = data.models.map(m => `<option value="${escapeHtml(m)}">`).join('');
+                }
+            }
+        } catch (_) {
+            // Silently fail — user can still type a model ID manually
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Load settings from server
+    // -----------------------------------------------------------------------
+    async function loadAllSettings() {
+        try {
+            // Fetch all three endpoints in parallel
+            const [settingsResp, providersResp, slotsResp] = await Promise.all([
+                fetch('/api/settings').then(r => r.json()).catch(() => ({})),
+                fetch('/api/providers').then(r => r.json()).catch(() => ({})),
+                fetch('/api/model-slots').then(r => r.json()).catch(() => ({})),
+            ]);
+
+            const s = settingsResp;
+
+            // Populate providers
+            if (providersResp && typeof providersResp === 'object') {
+                settingsState.providers = providersResp;
+            }
+
+            // Populate model slots
+            if (slotsResp && typeof slotsResp === 'object') {
+                settingsState.modelSlots = slotsResp;
+            }
+
+            // Render providers and slots
+            renderAllProviders();
+            renderSlots();
+
+            // Populate Local Model fields
+            if (s.LOCAL_MODEL_SOURCE) document.getElementById('s-local-source').value = s.LOCAL_MODEL_SOURCE;
+            if (s.LOCAL_MODEL_FILENAME) document.getElementById('s-local-filename').value = s.LOCAL_MODEL_FILENAME;
+            if (s.LOCAL_MODEL_PORT) document.getElementById('s-local-port').value = s.LOCAL_MODEL_PORT;
+            if (s.LOCAL_MODEL_N_GPU_LAYERS != null) document.getElementById('s-local-gpu-layers').value = s.LOCAL_MODEL_N_GPU_LAYERS;
+            if (s.LOCAL_MODEL_CONTEXT_LENGTH) document.getElementById('s-local-ctx').value = s.LOCAL_MODEL_CONTEXT_LENGTH;
+            if (s.LOCAL_MODEL_CHAT_FORMAT) document.getElementById('s-local-chat-format').value = s.LOCAL_MODEL_CHAT_FORMAT;
+
+            // Populate Runtime fields
+            if (s.OUROBOROS_MAX_WORKERS) document.getElementById('s-workers').value = s.OUROBOROS_MAX_WORKERS;
+            if (s.TOTAL_BUDGET) document.getElementById('s-budget').value = s.TOTAL_BUDGET;
+            if (s.OUROBOROS_SOFT_TIMEOUT_SEC) document.getElementById('s-soft-timeout').value = s.OUROBOROS_SOFT_TIMEOUT_SEC;
+            if (s.OUROBOROS_HARD_TIMEOUT_SEC) document.getElementById('s-hard-timeout').value = s.OUROBOROS_HARD_TIMEOUT_SEC;
+
+            // Populate GitHub fields
+            if (s.GITHUB_TOKEN) document.getElementById('s-gh-token').value = s.GITHUB_TOKEN;
+            if (s.GITHUB_REPO) document.getElementById('s-gh-repo').value = s.GITHUB_REPO;
+        } catch (e) {
+            console.error('Failed to load settings:', e);
+        }
+    }
+
+    loadAllSettings();
+
+    // -----------------------------------------------------------------------
+    // Local model status polling (kept from original)
+    // -----------------------------------------------------------------------
     function updateLocalStatus() {
-        if (state.activePage !== 'settings') return; // Don't poll if page is hidden
+        if (state.activePage !== 'settings') return;
         fetch('/api/local-model/status').then(r => r.json()).then(d => {
             const el = document.getElementById('local-model-status');
             const isReady = d.status === 'ready';
             let text = 'Status: ' + (d.status || 'offline').charAt(0).toUpperCase() + (d.status || 'offline').slice(1);
             if (d.status === 'ready' && d.context_length) text += ` (ctx: ${d.context_length})`;
             if (d.status === 'downloading' && d.download_progress) text += ` ${Math.round(d.download_progress * 100)}%`;
-            if (d.error) text += ' — ' + d.error;
+            if (d.error) text += ' \u2014 ' + d.error;
             el.textContent = text;
             el.style.color = isReady ? 'var(--green)' : d.status === 'error' ? 'var(--red)' : 'var(--text-secondary)';
             document.getElementById('btn-local-stop').style.opacity = isReady ? '1' : '0.5';
             document.getElementById('btn-local-test').style.opacity = isReady ? '1' : '0.5';
-            ['s-local-main', 's-local-code', 's-local-light', 's-local-fallback'].forEach(id => {
-                document.getElementById(id).disabled = !isReady;
-            });
         }).catch(() => {});
     }
     updateLocalStatus();
-    localStatusInterval = setInterval(updateLocalStatus, 3000);
+    setInterval(updateLocalStatus, 3000);
 
+    // Local model Start
     document.getElementById('btn-local-start').addEventListener('click', async () => {
         const source = document.getElementById('s-local-source').value.trim();
         if (!source) { alert('Enter a model source (HuggingFace repo ID or local path)'); return; }
@@ -529,6 +959,7 @@ function initSettings() {
         } catch (e) { alert('Failed: ' + e.message); }
     });
 
+    // Local model Stop
     document.getElementById('btn-local-stop').addEventListener('click', async () => {
         try {
             await fetch('/api/local-model/stop', { method: 'POST' });
@@ -536,6 +967,7 @@ function initSettings() {
         } catch (e) { alert('Failed: ' + e.message); }
     });
 
+    // Local model Test
     document.getElementById('btn-local-test').addEventListener('click', async () => {
         const el = document.getElementById('local-model-test-result');
         el.style.display = 'block';
@@ -555,42 +987,64 @@ function initSettings() {
         } catch (e) { el.textContent = 'Test failed: ' + e.message; el.style.color = 'var(--red)'; }
     });
 
+    // -----------------------------------------------------------------------
+    // Save all settings
+    // -----------------------------------------------------------------------
     document.getElementById('btn-save-settings').addEventListener('click', async () => {
+        // 1. Collect providers (strip masked keys — don't overwrite with mask)
+        const providers = {};
+        for (const [pid, prov] of Object.entries(settingsState.providers)) {
+            providers[pid] = {
+                name: prov.name,
+                type: prov.type,
+                base_url: prov.base_url,
+                api_key: prov.api_key,
+            };
+        }
+
+        // 2. Collect model slots from the UI
+        const model_slots = {};
+        for (const slot of SLOT_DEFS) {
+            const provSelect = slotsList.querySelector(`.slot-provider-select[data-slot="${slot.key}"]`);
+            const modelInput = slotsList.querySelector(`.slot-model-input[data-slot="${slot.key}"]`);
+            model_slots[slot.key] = {
+                provider_id: provSelect?.value || '',
+                model_id: modelInput?.value?.trim() || '',
+            };
+        }
+
+        // 3. Collect other settings
         const body = {
-            OUROBOROS_MODEL: document.getElementById('s-model').value,
-            OUROBOROS_MODEL_CODE: document.getElementById('s-model-code').value,
-            OUROBOROS_MODEL_LIGHT: document.getElementById('s-model-light').value,
-            OUROBOROS_MODEL_FALLBACK: document.getElementById('s-model-fallback').value,
-            CLAUDE_CODE_MODEL: document.getElementById('s-claude-code-model').value || 'sonnet',
-            OUROBOROS_MAX_WORKERS: parseInt(document.getElementById('s-workers').value) || 5,
-            TOTAL_BUDGET: parseFloat(document.getElementById('s-budget').value) || 10,
-            OUROBOROS_SOFT_TIMEOUT_SEC: parseInt(document.getElementById('s-soft-timeout').value) || 600,
-            OUROBOROS_HARD_TIMEOUT_SEC: parseInt(document.getElementById('s-hard-timeout').value) || 1800,
-            GITHUB_REPO: document.getElementById('s-gh-repo').value,
+            providers,
+            model_slots,
+            // Local model
             LOCAL_MODEL_SOURCE: document.getElementById('s-local-source').value,
             LOCAL_MODEL_FILENAME: document.getElementById('s-local-filename').value,
             LOCAL_MODEL_PORT: parseInt(document.getElementById('s-local-port').value) || 8766,
             LOCAL_MODEL_N_GPU_LAYERS: parseInt(document.getElementById('s-local-gpu-layers').value),
             LOCAL_MODEL_CONTEXT_LENGTH: parseInt(document.getElementById('s-local-ctx').value) || 16384,
             LOCAL_MODEL_CHAT_FORMAT: document.getElementById('s-local-chat-format').value,
-            USE_LOCAL_MAIN: document.getElementById('s-local-main').checked,
-            USE_LOCAL_CODE: document.getElementById('s-local-code').checked,
-            USE_LOCAL_LIGHT: document.getElementById('s-local-light').checked,
-            USE_LOCAL_FALLBACK: document.getElementById('s-local-fallback').checked,
+            // Runtime
+            OUROBOROS_MAX_WORKERS: parseInt(document.getElementById('s-workers').value) || 5,
+            TOTAL_BUDGET: parseFloat(document.getElementById('s-budget').value) || 10,
+            OUROBOROS_SOFT_TIMEOUT_SEC: parseInt(document.getElementById('s-soft-timeout').value) || 600,
+            OUROBOROS_HARD_TIMEOUT_SEC: parseInt(document.getElementById('s-hard-timeout').value) || 1800,
+            // GitHub
+            GITHUB_REPO: document.getElementById('s-gh-repo').value,
         };
-        const orKey = document.getElementById('s-openrouter').value;
-        if (orKey && !orKey.includes('...')) body.OPENROUTER_API_KEY = orKey;
-        const oaiKey = document.getElementById('s-openai').value;
-        if (oaiKey && !oaiKey.includes('...')) body.OPENAI_API_KEY = oaiKey;
-        const antKey = document.getElementById('s-anthropic').value;
-        if (antKey && !antKey.includes('...')) body.ANTHROPIC_API_KEY = antKey;
+
+        // Only include tokens/keys if user actually edited them (not masked)
         const ghToken = document.getElementById('s-gh-token').value;
         if (ghToken && !ghToken.includes('...')) body.GITHUB_TOKEN = ghToken;
 
         try {
-            await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
             const status = document.getElementById('settings-status');
-            status.textContent = 'Settings saved. Budget changes take effect immediately.';
+            status.textContent = 'Settings saved. Provider and slot changes take effect immediately.';
             status.style.display = 'block';
             setTimeout(() => status.style.display = 'none', 4000);
         } catch (e) {
@@ -598,6 +1052,9 @@ function initSettings() {
         }
     });
 
+    // -----------------------------------------------------------------------
+    // Danger Zone — Reset
+    // -----------------------------------------------------------------------
     document.getElementById('btn-reset').addEventListener('click', async () => {
         if (!confirm('This will delete all runtime data (state, memory, logs, settings) and restart.\nThe repo (agent code) will be preserved.\nYou will need to re-enter your API key.\n\nContinue?')) return;
         try {

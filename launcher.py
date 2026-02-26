@@ -555,21 +555,40 @@ input:focus, select:focus { border-color:#e85d6f; }
 .err { color:#ef4444; font-size:12px; margin-top:8px; display:none; }
 a { color:#e85d6f; }
 .opt { font-size:11px; color:rgba(255,255,255,.35); font-style:italic; }
+.hidden { display:none; }
 </style></head><body>
 <div class="card">
   <h2>Ouroboros</h2>
   <p class="sub">Configure your LLM provider. Everything can be changed later in Settings.</p>
 
-  <h3>Cloud LLM (OpenRouter)</h3>
-  <label>OpenRouter API Key <span class="opt">— required for cloud models</span></label>
-  <input id="api-key" type="password" placeholder="sk-or-v1-..." autofocus>
-  <p class="hint">Get one at <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></p>
+  <h3>Cloud LLM Provider</h3>
+  <label>Provider</label>
+  <select id="provider">
+    <option value="openrouter">OpenRouter</option>
+    <option value="openai">OpenAI</option>
+    <option value="anthropic">Anthropic</option>
+    <option value="ollama">Ollama (local API)</option>
+    <option value="custom">Custom (OpenAI-compatible)</option>
+  </select>
+
+  <div id="apikey-group">
+    <label id="apikey-label">API Key <span class="opt">— required</span></label>
+    <input id="api-key" type="password" placeholder="sk-or-v1-..." autofocus>
+    <p class="hint" id="apikey-hint">Get one at <a id="apikey-link" href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></p>
+  </div>
+
+  <div id="baseurl-group" class="hidden">
+    <label>Base URL</label>
+    <input id="base-url" placeholder="http://127.0.0.1:11434/v1">
+  </div>
+
   <div class="row">
     <div class="field"><label>Main Model</label><input id="model" value="anthropic/claude-sonnet-4.6"></div>
     <div class="field"><label>Budget ($)</label><input id="budget" type="number" value="10" min="1" step="1" style="width:100px"></div>
   </div>
 
-  <label>OpenAI API Key <span class="opt">— for web search</span></label>
+  <h3>Web Search <span class="opt">— optional</span></h3>
+  <label>OpenAI API Key <span class="opt">— for web search tool</span></label>
   <input id="openai-key" type="password" placeholder="sk-...">
   <p class="hint">Enables the web_search tool. <a href="https://platform.openai.com/api-keys" target="_blank">Get key</a></p>
 
@@ -598,50 +617,169 @@ const PRESETS = {
     'qwen3-14b':  { source: 'Qwen/Qwen3-14B-GGUF', filename: 'Qwen3-14B-Q4_K_M.gguf', ctx: 16384 },
     'qwen3-32b':  { source: 'Qwen/Qwen3-32B-GGUF', filename: 'Qwen3-32B-Q4_K_M.gguf', ctx: 32768 },
 };
+
+/* Provider config: default model, key placeholder, key hint URL/text, whether key is needed, base URL default */
+const PROVIDERS = {
+    openrouter: {
+        model: 'anthropic/claude-sonnet-4.6', placeholder: 'sk-or-v1-...',
+        hintUrl: 'https://openrouter.ai/keys', hintText: 'openrouter.ai/keys',
+        needsKey: true, baseUrl: '', type: 'openrouter',
+    },
+    openai: {
+        model: 'gpt-5.2', placeholder: 'sk-...',
+        hintUrl: 'https://platform.openai.com/api-keys', hintText: 'platform.openai.com/api-keys',
+        needsKey: true, baseUrl: '', type: 'openai',
+    },
+    anthropic: {
+        model: 'claude-sonnet-4.6', placeholder: 'sk-ant-...',
+        hintUrl: 'https://console.anthropic.com/settings/keys', hintText: 'console.anthropic.com/keys',
+        needsKey: true, baseUrl: '', type: 'anthropic',
+    },
+    ollama: {
+        model: 'qwen3:8b', placeholder: '',
+        hintUrl: '', hintText: '',
+        needsKey: false, baseUrl: 'http://127.0.0.1:11434/v1', type: 'ollama',
+    },
+    custom: {
+        model: '', placeholder: 'sk-...',
+        hintUrl: '', hintText: '',
+        needsKey: true, baseUrl: 'http://127.0.0.1:8080/v1', type: 'custom',
+    },
+};
+
+const providerSelect = document.getElementById('provider');
 const keyInput = document.getElementById('api-key');
+const baseUrlInput = document.getElementById('base-url');
+const modelInput = document.getElementById('model');
 const preset = document.getElementById('local-preset');
 const btn = document.getElementById('save-btn');
+const apikeyGroup = document.getElementById('apikey-group');
+const baseurlGroup = document.getElementById('baseurl-group');
+const apikeyLink = document.getElementById('apikey-link');
+const apikeyHint = document.getElementById('apikey-hint');
+
+function updateProviderUI() {
+    const p = PROVIDERS[providerSelect.value];
+    /* Model default */
+    modelInput.value = p.model;
+    /* API key field visibility */
+    apikeyGroup.classList.toggle('hidden', !p.needsKey);
+    if (p.needsKey) {
+        keyInput.placeholder = p.placeholder;
+        if (p.hintUrl) {
+            apikeyHint.classList.remove('hidden');
+            apikeyLink.href = p.hintUrl;
+            apikeyLink.textContent = p.hintText;
+        } else {
+            apikeyHint.classList.add('hidden');
+        }
+    }
+    /* Base URL field visibility */
+    const showBaseUrl = providerSelect.value === 'ollama' || providerSelect.value === 'custom';
+    baseurlGroup.classList.toggle('hidden', !showBaseUrl);
+    if (showBaseUrl) baseUrlInput.value = p.baseUrl;
+    validate();
+}
 
 function validate() {
-    const hasKey = keyInput.value.trim().length >= 10;
+    const pv = providerSelect.value;
+    const p = PROVIDERS[pv];
+    const hasKey = p.needsKey ? keyInput.value.trim().length >= 10 : true;
+    const hasModel = modelInput.value.trim().length > 0;
     const hasLocal = preset.value !== '';
-    btn.disabled = !(hasKey || hasLocal);
+    /* Ollama / custom without key: need model + base URL */
+    if (!p.needsKey) {
+        const hasUrl = baseUrlInput.value.trim().length > 0;
+        btn.disabled = !(hasUrl && hasModel);
+    } else {
+        btn.disabled = !((hasKey && hasModel) || hasLocal);
+    }
 }
+
+providerSelect.addEventListener('change', updateProviderUI);
 keyInput.addEventListener('input', validate);
+baseUrlInput.addEventListener('input', validate);
+modelInput.addEventListener('input', validate);
 preset.addEventListener('change', () => {
     document.getElementById('custom-fields').style.display = preset.value === 'custom' ? '' : 'none';
     validate();
 });
 
+/* Initialize UI for default provider */
+updateProviderUI();
+
 btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Saving...';
-    const data = {
-        TOTAL_BUDGET: parseFloat(document.getElementById('budget').value) || 10,
-        OUROBOROS_MODEL: document.getElementById('model').value.trim() || 'anthropic/claude-sonnet-4.6',
+
+    const pv = providerSelect.value;
+    const pCfg = PROVIDERS[pv];
+    const selectedModel = modelInput.value.trim() || pCfg.model;
+    const apiKey = keyInput.value.trim();
+    const baseUrl = baseUrlInput.value.trim();
+    const budget = parseFloat(document.getElementById('budget').value) || 10;
+
+    /* Build provider entry */
+    const providerEntry = { name: pv, type: pCfg.type };
+    if (pCfg.needsKey && apiKey.length >= 10) providerEntry.api_key = apiKey;
+    if (baseUrl) providerEntry.base_url = baseUrl;
+
+    const providers = {};
+    providers[pv] = providerEntry;
+
+    /* Model slots — primary provider for all slots */
+    const modelSlots = {
+        main:      { provider_id: pv, model_id: selectedModel },
+        code:      { provider_id: pv, model_id: selectedModel },
+        light:     { provider_id: pv, model_id: selectedModel },
+        fallback:  { provider_id: pv, model_id: selectedModel },
+        websearch: { provider_id: pv, model_id: selectedModel },
+        vision:    { provider_id: pv, model_id: selectedModel },
     };
-    const orKey = keyInput.value.trim();
-    if (orKey.length >= 10) data.OPENROUTER_API_KEY = orKey;
+
+    /* OpenAI secondary key for web search */
     const oaiKey = document.getElementById('openai-key').value.trim();
+    if (oaiKey.length >= 10) {
+        providers['openai'] = { name: 'openai', type: 'openai', api_key: oaiKey };
+        modelSlots.websearch = { provider_id: 'openai', model_id: 'gpt-5.2' };
+    }
+
+    /* Assemble data object */
+    const data = {
+        providers: providers,
+        model_slots: modelSlots,
+        TOTAL_BUDGET: budget,
+        OUROBOROS_MODEL: selectedModel,
+    };
+
+    /* Legacy flat keys for backwards compat */
+    if (pv === 'openrouter' && apiKey.length >= 10) data.OPENROUTER_API_KEY = apiKey;
+    if (pv === 'openai' && apiKey.length >= 10) data.OPENAI_API_KEY = apiKey;
+    if (pv === 'anthropic' && apiKey.length >= 10) data.ANTHROPIC_API_KEY = apiKey;
     if (oaiKey.length >= 10) data.OPENAI_API_KEY = oaiKey;
-    const p = preset.value;
-    if (p && p !== 'custom' && PRESETS[p]) {
-        data.LOCAL_MODEL_SOURCE = PRESETS[p].source;
-        data.LOCAL_MODEL_FILENAME = PRESETS[p].filename;
-        data.LOCAL_MODEL_CONTEXT_LENGTH = PRESETS[p].ctx;
+
+    /* Local model presets */
+    const lp = preset.value;
+    if (lp && lp !== 'custom' && PRESETS[lp]) {
+        data.LOCAL_MODEL_SOURCE = PRESETS[lp].source;
+        data.LOCAL_MODEL_FILENAME = PRESETS[lp].filename;
+        data.LOCAL_MODEL_CONTEXT_LENGTH = PRESETS[lp].ctx;
         data.LOCAL_MODEL_N_GPU_LAYERS = 0;
-        data.USE_LOCAL_MAIN = !orKey;
-        data.USE_LOCAL_LIGHT = !orKey;
-        data.USE_LOCAL_CODE = !orKey;
+        const noCloudKey = !(pCfg.needsKey && apiKey.length >= 10);
+        data.USE_LOCAL_MAIN = noCloudKey;
+        data.USE_LOCAL_LIGHT = noCloudKey;
+        data.USE_LOCAL_CODE = noCloudKey;
         data.USE_LOCAL_FALLBACK = true;
-    } else if (p === 'custom') {
+    } else if (lp === 'custom') {
         data.LOCAL_MODEL_SOURCE = document.getElementById('local-source').value.trim();
         data.LOCAL_MODEL_FILENAME = document.getElementById('local-filename').value.trim();
         data.LOCAL_MODEL_N_GPU_LAYERS = 0;
-        data.USE_LOCAL_MAIN = !orKey;
-        data.USE_LOCAL_LIGHT = !orKey;
-        data.USE_LOCAL_CODE = !orKey;
+        const noCloudKey = !(pCfg.needsKey && apiKey.length >= 10);
+        data.USE_LOCAL_MAIN = noCloudKey;
+        data.USE_LOCAL_LIGHT = noCloudKey;
+        data.USE_LOCAL_CODE = noCloudKey;
         data.USE_LOCAL_FALLBACK = true;
     }
+
     const result = await window.pywebview.api.save_wizard(data);
     if (result === 'ok') { btn.textContent = 'Starting...'; }
     else { document.getElementById('err').style.display='block';
@@ -655,9 +793,17 @@ def _save_settings(settings: dict) -> None:
 
 
 def _run_first_run_wizard() -> bool:
-    """Show setup wizard if no API key or local model configured. Returns True if configured."""
+    """Show setup wizard if no provider or legacy API key configured. Returns True if configured."""
     settings = _load_settings()
-    if settings.get("OPENROUTER_API_KEY") or settings.get("LOCAL_MODEL_SOURCE"):
+    # Skip wizard if any provider is configured (new format) or legacy keys exist
+    has_providers = bool(settings.get("providers"))
+    has_legacy_key = (
+        settings.get("OPENROUTER_API_KEY")
+        or settings.get("OPENAI_API_KEY")
+        or settings.get("ANTHROPIC_API_KEY")
+    )
+    has_local = bool(settings.get("LOCAL_MODEL_SOURCE"))
+    if has_providers or has_legacy_key or has_local:
         return True
 
     import webview
@@ -665,10 +811,19 @@ def _run_first_run_wizard() -> bool:
 
     class WizardApi:
         def save_wizard(self, data: dict) -> str:
-            key = str(data.get("OPENROUTER_API_KEY", "")).strip()
-            has_local = bool(data.get("LOCAL_MODEL_SOURCE", "").strip())
-            if len(key) < 10 and not has_local:
-                return "Provide an OpenRouter API key or select a local model."
+            providers = data.get("providers", {})
+            has_valid_provider = False
+            for pid, pcfg in providers.items():
+                ptype = pcfg.get("type", "")
+                # Ollama doesn't need an API key, just a base URL
+                if ptype == "ollama":
+                    if pcfg.get("base_url", "").strip():
+                        has_valid_provider = True
+                elif pcfg.get("api_key", "").strip():
+                    has_valid_provider = True
+            has_local_model = bool(data.get("LOCAL_MODEL_SOURCE", "").strip())
+            if not has_valid_provider and not has_local_model:
+                return "Provide a valid API key, configure Ollama, or select a local model."
             settings.update(data)
             try:
                 _save_settings(settings)
@@ -683,8 +838,8 @@ def _run_first_run_wizard() -> bool:
         "Ouroboros — Setup",
         html=_WIZARD_HTML,
         js_api=WizardApi(),
-        width=520,
-        height=480,
+        width=540,
+        height=620,
     )
     webview.start()
     return _wizard_done["ok"]

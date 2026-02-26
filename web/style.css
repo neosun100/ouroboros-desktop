@@ -1,9 +1,11 @@
 :root {
+    color-scheme: dark;
     --bg-primary: #0d0b0f;
     --bg-secondary: #1a1520;
     --bg-tertiary: #201828;
     --bg-card: rgba(255, 255, 255, 0.06);
     --bg-hover: rgba(255, 255, 255, 0.08);
+    --bg-main: #151218;
     --text-primary: #e2e8f0;
     --text-secondary: rgba(255, 255, 255, 0.54);
     --text-muted: rgba(255, 255, 255, 0.38);
@@ -694,4 +696,224 @@ body {
 .btn-sm {
     padding: 4px 12px;
     font-size: 12px;
+}
+
+/* Provider cards */
+.provider-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    transition: border-color 0.2s;
+}
+.provider-card:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+}
+.provider-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.provider-card-info {
+    flex: 1;
+    min-width: 0;
+}
+.provider-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.provider-card-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.provider-card-meta span {
+    white-space: nowrap;
+}
+.provider-card-meta code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.provider-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    align-items: center;
+}
+.provider-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.provider-status-dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+.provider-status-dot.fail { background: var(--red); box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+.provider-status-dot.untested { background: rgba(255, 255, 255, 0.2); }
+.provider-status-dot.testing {
+    background: var(--amber);
+    animation: thinking-pulse 1s ease-in-out infinite;
+}
+.provider-type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+.provider-model-count {
+    font-size: 11px;
+    color: var(--green);
+    margin-left: 4px;
+}
+
+.provider-edit-form {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+    display: none;
+}
+.provider-edit-form.visible {
+    display: block;
+}
+.provider-edit-form .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: flex-end;
+}
+.provider-edit-form .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.provider-edit-form .form-field label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.provider-edit-form .form-field input,
+.provider-edit-form .form-field select {
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--divider);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.provider-edit-form .form-field input:focus,
+.provider-edit-form .form-field select:focus {
+    border-color: var(--accent);
+}
+
+/* Slot configuration */
+.slot-config {
+    display: grid;
+    grid-template-columns: 180px 180px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.slot-config:last-child {
+    border-bottom: none;
+}
+.slot-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.slot-label-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.slot-label-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.slot-config select,
+.slot-config input {
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--divider);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+}
+.slot-config select:focus,
+.slot-config input:focus {
+    border-color: var(--accent);
+}
+
+/* Settings section header */
+.settings-section {
+    margin-bottom: 24px;
+}
+.settings-section-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+/* Add provider button */
+.btn-add-provider {
+    width: 100%;
+    padding: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.btn-add-provider:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+    #matrix-rain { display: none !important; }
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 53, 69, 0.2) transparent;
 }

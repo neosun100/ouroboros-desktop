@@ -82,6 +82,12 @@ class BackgroundConsciousness:
 
     @property
     def _model(self) -> str:
+        try:
+            slot = self._llm.get_slot_config("light")
+            if slot.model_id:
+                return slot.model_id
+        except Exception:
+            pass
         return os.environ.get("OUROBOROS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
 
     def start(self) -> str:
@@ -194,14 +200,13 @@ class BackgroundConsciousness:
             for round_idx in range(1, self._max_bg_rounds + 1):
                 if self._paused:
                     break
-                _use_local_light = os.environ.get("USE_LOCAL_LIGHT", "").lower() in ("true", "1")
                 msg, usage = self._llm.chat(
                     messages=messages,
                     model=model,
                     tools=tools,
                     reasoning_effort="low",
                     max_tokens=2048,
-                    use_local=_use_local_light,
+                    slot="light",
                 )
                 cost = float(usage.get("cost") or 0)
                 total_cost += cost
@@ -221,9 +226,10 @@ class BackgroundConsciousness:
 
                 # Report usage to supervisor
                 if self._event_queue is not None:
+                    light_slot = self._llm.get_slot_config("light")
                     self._event_queue.put({
                         "type": "llm_usage",
-                        "provider": "openrouter",
+                        "provider": light_slot.provider_id,
                         "model": model,
                         "usage": usage,
                         "cost": cost,

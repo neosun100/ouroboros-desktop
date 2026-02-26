@@ -47,19 +47,19 @@ def _analyze_screenshot(ctx: ToolContext, prompt: str = "Describe what you see i
             "First call browse_page(output='screenshot') or browser_action(action='screenshot')."
         )
 
-    vlm_model = model or _get_vlm_model()
-
     try:
         client = _get_llm_client()
         text, usage = client.vision_query(
             prompt=prompt,
             images=[{"base64": b64, "mime": "image/png"}],
-            model=vlm_model,
+            model=model,
             max_tokens=1024,
             reasoning_effort="low",
+            slot="vision",
         )
 
         # Emit usage event if event_queue is available
+        vlm_model = model or client.get_slot_config("vision").model_id or _DEFAULT_VLM_MODEL
         _emit_usage(ctx, usage, vlm_model)
 
         return text or "(no response from VLM)"
@@ -81,18 +81,18 @@ def _vlm_query(ctx: ToolContext, prompt: str, image_url: str = "", image_base64:
     else:
         images.append({"base64": image_base64, "mime": image_mime})
 
-    vlm_model = model or _get_vlm_model()
-
     try:
         client = _get_llm_client()
         text, usage = client.vision_query(
             prompt=prompt,
             images=images,
-            model=vlm_model,
+            model=model,
             max_tokens=1024,
             reasoning_effort="low",
+            slot="vision",
         )
 
+        vlm_model = model or client.get_slot_config("vision").model_id or _DEFAULT_VLM_MODEL
         _emit_usage(ctx, usage, vlm_model)
 
         return text or "(no response from VLM)"

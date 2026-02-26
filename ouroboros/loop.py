@@ -620,6 +620,7 @@ def run_llm_loop(
     # LLM-first: single default model, LLM switches via tool if needed
     active_model = llm.default_model()
     active_effort = initial_effort
+    active_slot = "main"
     active_use_local = os.environ.get("USE_LOCAL_MAIN", "").lower() in ("true", "1")
 
     llm_trace: Dict[str, Any] = {"assistant_notes": [], "tool_calls": []}
@@ -660,7 +661,7 @@ def run_llm_loop(
                     final_msg, final_cost = _call_llm_with_retry(
                         llm, messages, active_model, None, active_effort,
                         max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type,
-                        use_local=active_use_local,
+                        use_local=active_use_local, slot=active_slot,
                     )
                     if final_msg:
                         return (final_msg.get("content") or finish_reason), accumulated_usage, llm_trace
@@ -707,12 +708,13 @@ def run_llm_loop(
             msg, cost = _call_llm_with_retry(
                 llm, messages, active_model, tool_schemas, active_effort,
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type,
-                use_local=active_use_local,
+                use_local=active_use_local, slot=active_slot,
             )
 
             # Single fallback model (Bible P3: configurable, not hardcoded)
             if msg is None:
-                fallback_model = os.environ.get("OUROBOROS_MODEL_FALLBACK", "").strip()
+                fallback_slot_config = llm.get_slot_config("fallback")
+                fallback_model = fallback_slot_config.model_id or os.environ.get("OUROBOROS_MODEL_FALLBACK", "").strip()
                 if not fallback_model or fallback_model == active_model:
                     local_tag = " (local)" if active_use_local else ""
                     return (
@@ -721,14 +723,14 @@ def run_llm_loop(
                         f"If background consciousness is running, it will retry when the provider recovers."
                     ), accumulated_usage, llm_trace
 
-                fallback_use_local = os.environ.get("USE_LOCAL_FALLBACK", "").lower() in ("true", "1")
+                fallback_use_local = fallback_slot_config.provider_id == "local"
                 primary_tag = " (local)" if active_use_local else ""
                 fallback_tag = " (local)" if fallback_use_local else ""
                 emit_progress(f"⚡ Fallback: {active_model}{primary_tag} → {fallback_model}{fallback_tag} after empty response")
                 msg, fallback_cost = _call_llm_with_retry(
                     llm, messages, fallback_model, tool_schemas, active_effort,
                     max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type,
-                    use_local=fallback_use_local,
+                    use_local=fallback_use_local, slot="fallback",
                 )
 
                 if msg is None:
@@ -783,7 +785,20 @@ def run_llm_loop(
 
 
 def _infer_api_key_type(model: str) -> str:
-    """Infer which API key is used based on model name."""
+    """Infer which API key type is used based on model name or slot config."""
+    try:
+        from ouroboros.config import load_settings
+        settings = load_settings()
+        slots = settings.get("model_slots", {})
+        providers = settings.get("providers", {})
+        for slot_name, slot in slots.items():
+            if slot.get("model_id") == model:
+                pid = slot.get("provider_id", "")
+                p = providers.get(pid, {})
+                return p.get("type", pid) or pid
+    except Exception:
+        pass
+    # Fallback to prefix-based inference
     if model.startswith(("anthropic/", "google/", "openai/", "x-ai/", "qwen/")):
         return "openrouter"
     if "claude" in model.lower():
@@ -792,7 +807,17 @@ def _infer_api_key_type(model: str) -> str:
 
 
 def _infer_model_category(model: str) -> str:
-    """Infer model category by comparing against configured model env vars."""
+    """Infer model category by comparing against configured model slots."""
+    try:
+        from ouroboros.config import load_settings
+        settings = load_settings()
+        slots = settings.get("model_slots", {})
+        for cat in ("main", "code", "light", "fallback"):
+            if slots.get(cat, {}).get("model_id") == model:
+                return cat
+    except Exception:
+        pass
+    # Fallback to env var comparison
     configured = {
         "main": os.environ.get("OUROBOROS_MODEL", ""),
         "code": os.environ.get("OUROBOROS_MODEL_CODE", ""),
@@ -861,6 +886,7 @@ def _call_llm_with_retry(
     accumulated_usage: Dict[str, Any],
     task_type: str = "",
     use_local: bool = False,
+    slot: str = "main",
 ) -> Tuple[Optional[Dict[str, Any]], float]:
     """
     Call LLM with retry logic, usage tracking, and event emission.
@@ -875,7 +901,7 @@ def _call_llm_with_retry(
     for attempt in range(max_retries):
         try:
             kwargs = {"messages": messages, "model": model, "reasoning_effort": effort,
-                      "use_local": use_local}
+                      "use_local": use_local, "slot": slot}
             if tools:
                 kwargs["tools"] = tools
             resp_msg, usage = llm.chat(**kwargs)

@@ -545,9 +545,17 @@ async def api_state(request: Request) -> JSONResponse:
 async def api_settings_get(request: Request) -> JSONResponse:
     settings = load_settings()
     safe = {k: v for k, v in settings.items()}
+    # Mask legacy flat API keys
     for key in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"):
         if safe.get(key):
             safe[key] = safe[key][:8] + "..." if len(safe[key]) > 8 else "***"
+    # Mask nested provider API keys
+    if "providers" in safe and isinstance(safe["providers"], dict):
+        import copy as _copy
+        safe["providers"] = _copy.deepcopy(safe["providers"])
+        for pid, p in safe["providers"].items():
+            key = p.get("api_key", "")
+            p["api_key"] = key[:8] + "..." if len(key) > 8 else ("***" if key else "")
     return JSONResponse(safe)
 
 
@@ -555,11 +563,38 @@ async def api_settings_post(request: Request) -> JSONResponse:
     try:
         body = await request.json()
         current = load_settings()
+        # Update flat keys from SETTINGS_DEFAULTS
         for key in _SETTINGS_DEFAULTS:
-            if key in body:
+            if key in body and key not in ("providers", "model_slots"):
                 current[key] = body[key]
+        # Deep merge providers: update matching keys, add new ones
+        if "providers" in body and isinstance(body["providers"], dict):
+            if "providers" not in current or not isinstance(current.get("providers"), dict):
+                current["providers"] = {}
+            for pid, pdata in body["providers"].items():
+                if pid in current["providers"]:
+                    current["providers"][pid].update(pdata)
+                else:
+                    current["providers"][pid] = pdata
+        # Deep merge model_slots
+        if "model_slots" in body and isinstance(body["model_slots"], dict):
+            if "model_slots" not in current or not isinstance(current.get("model_slots"), dict):
+                current["model_slots"] = {}
+            for slot, sdata in body["model_slots"].items():
+                if slot in current["model_slots"]:
+                    current["model_slots"][slot].update(sdata)
+                else:
+                    current["model_slots"][slot] = sdata
         save_settings(current)
         _apply_settings_to_env(current)
+        # Invalidate LLM clients so they pick up new provider config
+        try:
+            from ouroboros.llm import invalidate_clients
+            invalidate_clients()
+        except ImportError:
+            pass
+        except Exception:
+            pass
         _repo_slug = current.get("GITHUB_REPO", "")
         _gh_token = current.get("GITHUB_TOKEN", "")
         if _repo_slug and _gh_token:
@@ -793,6 +828,45 @@ async def api_local_model_test(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Multi-provider API endpoints
+# ---------------------------------------------------------------------------
+
+async def api_providers_list(request: Request) -> JSONResponse:
+    """List all configured providers with masked API keys."""
+    settings = load_settings()
+    providers = settings.get("providers", {})
+    safe = {}
+    for pid, p in providers.items():
+        safe[pid] = dict(p)
+        key = p.get("api_key", "")
+        safe[pid]["api_key"] = key[:8] + "..." if len(key) > 8 else ("***" if key else "")
+    return JSONResponse(safe)
+
+
+async def api_providers_test(request: Request) -> JSONResponse:
+    """Test connection to a provider, return available models."""
+    body = await request.json()
+    base_url = body.get("base_url", "")
+    api_key = body.get("api_key", "")
+    if not base_url:
+        return JSONResponse({"status": "error", "error": "base_url required"})
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=base_url, api_key=api_key or "no-key", timeout=10)
+        models_resp = client.models.list()
+        model_ids = sorted([m.id for m in models_resp.data[:100]])
+        return JSONResponse({"status": "ok", "models": model_ids, "count": len(model_ids)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e)})
+
+
+async def api_model_slots_get(request: Request) -> JSONResponse:
+    """Return current model slot configurations."""
+    settings = load_settings()
+    return JSONResponse(settings.get("model_slots", {}))
+
+
+# ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 web_dir = REPO_DIR / "web"
@@ -814,6 +888,9 @@ routes = [
     Route("/api/local-model/stop", endpoint=api_local_model_stop, methods=["POST"]),
     Route("/api/local-model/status", endpoint=api_local_model_status),
     Route("/api/local-model/test", endpoint=api_local_model_test, methods=["POST"]),
+    Route("/api/providers", endpoint=api_providers_list, methods=["GET"]),
+    Route("/api/providers/test", endpoint=api_providers_test, methods=["POST"]),
+    Route("/api/model-slots", endpoint=api_model_slots_get, methods=["GET"]),
     WebSocketRoute("/ws", endpoint=ws_endpoint),
     Mount("/static", app=StaticFiles(directory=str(web_dir)), name="static"),
 ]
@@ -827,7 +904,8 @@ async def lifespan(app):
     _event_loop = asyncio.get_running_loop()
 
     settings = load_settings()
-    if settings.get("OPENROUTER_API_KEY"):
+    from ouroboros.config import has_any_provider_key
+    if has_any_provider_key(settings) or settings.get("OPENROUTER_API_KEY"):
         threading.Thread(target=_run_supervisor, args=(settings,), daemon=True).start()
     else:
         _supervisor_ready.set()

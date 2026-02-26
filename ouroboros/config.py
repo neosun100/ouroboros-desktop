@@ -7,13 +7,17 @@ Does not import anything from ouroboros.* (zero dependency level).
 
 from __future__ import annotations
 
+import copy
 import fcntl
 import json
+import logging
 import os
 import pathlib
 import sys
 import time
-from typing import Optional
+from typing import Any, Dict, Optional
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +39,53 @@ AGENT_SERVER_PORT = 8765
 # ---------------------------------------------------------------------------
 # Settings defaults
 # ---------------------------------------------------------------------------
-SETTINGS_DEFAULTS = {
+
+# Pre-seeded provider configurations
+_DEFAULT_PROVIDERS: Dict[str, Dict[str, str]] = {
+    "openrouter": {
+        "name": "OpenRouter",
+        "type": "openrouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key": "",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "type": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "",
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "type": "anthropic",
+        "base_url": "https://api.anthropic.com/v1",
+        "api_key": "",
+    },
+    "ollama": {
+        "name": "Ollama",
+        "type": "ollama",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "api_key": "ollama",
+    },
+    "local": {
+        "name": "Local (llama-cpp)",
+        "type": "local",
+        "base_url": "http://127.0.0.1:8766/v1",
+        "api_key": "local",
+    },
+}
+
+# Per-slot model configuration: which provider + model each scenario uses
+_DEFAULT_MODEL_SLOTS: Dict[str, Dict[str, str]] = {
+    "main":      {"provider_id": "openrouter", "model_id": "anthropic/claude-sonnet-4.6"},
+    "code":      {"provider_id": "openrouter", "model_id": "anthropic/claude-sonnet-4.6"},
+    "light":     {"provider_id": "openrouter", "model_id": "google/gemini-3-flash-preview"},
+    "fallback":  {"provider_id": "openrouter", "model_id": "google/gemini-3-flash-preview"},
+    "websearch": {"provider_id": "openai",     "model_id": "gpt-5.2"},
+    "vision":    {"provider_id": "openrouter", "model_id": "anthropic/claude-sonnet-4.6"},
+}
+
+SETTINGS_DEFAULTS: Dict[str, Any] = {
+    # --- Legacy flat keys (kept for backwards compat with workers) ---
     "OPENROUTER_API_KEY": "",
     "OPENAI_API_KEY": "",
     "ANTHROPIC_API_KEY": "",
@@ -66,6 +116,9 @@ SETTINGS_DEFAULTS = {
     "USE_LOCAL_CODE": False,
     "USE_LOCAL_LIGHT": False,
     "USE_LOCAL_FALLBACK": False,
+    # --- New provider + slot architecture ---
+    "providers": copy.deepcopy(_DEFAULT_PROVIDERS),
+    "model_slots": copy.deepcopy(_DEFAULT_MODEL_SLOTS),
 }
 
 
@@ -81,6 +134,103 @@ def read_version() -> str:
         return vp.read_text(encoding="utf-8").strip()
     except Exception:
         return "0.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Settings migration (flat v1 → provider/slot v2)
+# ---------------------------------------------------------------------------
+
+# Map legacy flat key to new slot name
+_LEGACY_MODEL_KEY_TO_SLOT = {
+    "OUROBOROS_MODEL": "main",
+    "OUROBOROS_MODEL_CODE": "code",
+    "OUROBOROS_MODEL_LIGHT": "light",
+    "OUROBOROS_MODEL_FALLBACK": "fallback",
+    "OUROBOROS_WEBSEARCH_MODEL": "websearch",
+}
+_LEGACY_USE_LOCAL_TO_SLOT = {
+    "USE_LOCAL_MAIN": "main",
+    "USE_LOCAL_CODE": "code",
+    "USE_LOCAL_LIGHT": "light",
+    "USE_LOCAL_FALLBACK": "fallback",
+}
+_LEGACY_KEY_TO_PROVIDER = {
+    "OPENROUTER_API_KEY": "openrouter",
+    "OPENAI_API_KEY": "openai",
+    "ANTHROPIC_API_KEY": "anthropic",
+}
+
+
+def migrate_settings(settings: dict) -> dict:
+    """Migrate flat v1 settings to provider/slot v2 format.
+
+    Idempotent: already-migrated settings pass through unchanged.
+    Preserves all legacy flat keys for backwards compatibility.
+    """
+    if "providers" in settings and "model_slots" in settings:
+        return settings  # Already migrated
+
+    migrated = dict(settings)
+
+    # Build providers from existing API keys
+    providers = copy.deepcopy(_DEFAULT_PROVIDERS)
+    for legacy_key, pid in _LEGACY_KEY_TO_PROVIDER.items():
+        key_val = settings.get(legacy_key, "")
+        if key_val:
+            providers[pid]["api_key"] = key_val
+
+    # Update local provider port from settings
+    local_port = settings.get("LOCAL_MODEL_PORT", 8766)
+    providers["local"]["base_url"] = f"http://127.0.0.1:{local_port}/v1"
+
+    migrated["providers"] = providers
+
+    # Determine default provider (first one with an API key, or openrouter)
+    default_pid = "openrouter"
+    for pid in ("openrouter", "openai", "anthropic"):
+        if providers.get(pid, {}).get("api_key"):
+            default_pid = pid
+            break
+
+    # Build model slots from legacy flat keys
+    slots = copy.deepcopy(_DEFAULT_MODEL_SLOTS)
+    for legacy_key, slot_name in _LEGACY_MODEL_KEY_TO_SLOT.items():
+        model_val = settings.get(legacy_key)
+        if model_val:
+            slots[slot_name]["model_id"] = model_val
+            slots[slot_name]["provider_id"] = default_pid
+
+    # WebSearch defaults to OpenAI if available
+    if providers.get("openai", {}).get("api_key"):
+        slots["websearch"]["provider_id"] = "openai"
+
+    # Vision slot uses same provider as main
+    slots["vision"]["provider_id"] = slots["main"]["provider_id"]
+    slots["vision"]["model_id"] = slots["main"]["model_id"]
+
+    # Apply USE_LOCAL_* overrides
+    for legacy_key, slot_name in _LEGACY_USE_LOCAL_TO_SLOT.items():
+        use_local = settings.get(legacy_key, False)
+        if isinstance(use_local, str):
+            use_local = use_local.lower() in ("true", "1")
+        if use_local:
+            slots[slot_name]["provider_id"] = "local"
+
+    migrated["model_slots"] = slots
+    return migrated
+
+
+def has_any_provider_key(settings: dict) -> bool:
+    """Check if any provider has a configured API key (or is keyless like Ollama)."""
+    providers = settings.get("providers", {})
+    for pid, p in providers.items():
+        ptype = p.get("type", "")
+        # Ollama and local don't need real keys
+        if ptype in ("ollama", "local"):
+            continue
+        if p.get("api_key"):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -128,10 +278,11 @@ def load_settings() -> dict:
     try:
         if SETTINGS_PATH.exists():
             try:
-                return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+                raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+                return migrate_settings(raw)
             except Exception:
-                pass
-        return dict(SETTINGS_DEFAULTS)
+                log.warning("Failed to parse settings.json, using defaults", exc_info=True)
+        return migrate_settings(dict(SETTINGS_DEFAULTS))
     finally:
         _release_settings_lock(fd)
 
@@ -151,7 +302,30 @@ def save_settings(settings: dict) -> None:
 
 
 def apply_settings_to_env(settings: dict) -> None:
-    """Push settings into environment variables for supervisor modules."""
+    """Push settings into environment variables for supervisor modules.
+
+    Syncs new provider/slot config back to legacy env vars so forked
+    workers that read env vars continue to work.
+    """
+    # Sync provider API keys back to legacy flat keys
+    providers = settings.get("providers", {})
+    for legacy_key, pid in _LEGACY_KEY_TO_PROVIDER.items():
+        p = providers.get(pid, {})
+        if p.get("api_key"):
+            settings.setdefault(legacy_key, p["api_key"])
+
+    # Sync model slots back to legacy flat keys
+    slots = settings.get("model_slots", {})
+    for legacy_key, slot_name in _LEGACY_MODEL_KEY_TO_SLOT.items():
+        slot = slots.get(slot_name, {})
+        if slot.get("model_id"):
+            settings[legacy_key] = slot["model_id"]
+
+    # Sync USE_LOCAL_* from provider_id
+    for legacy_key, slot_name in _LEGACY_USE_LOCAL_TO_SLOT.items():
+        slot = slots.get(slot_name, {})
+        settings[legacy_key] = slot.get("provider_id") == "local"
+
     env_keys = [
         "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
         "OUROBOROS_MODEL", "OUROBOROS_MODEL_CODE", "OUROBOROS_MODEL_LIGHT",

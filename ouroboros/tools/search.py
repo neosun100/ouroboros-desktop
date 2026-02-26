@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import List
 
 from ouroboros.tools.registry import ToolContext, ToolEntry
 from ouroboros.utils import utc_now_iso
@@ -45,19 +45,38 @@ def _web_search(
     search_context_size: str = "",
     reasoning_effort: str = "",
 ) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    # Resolve websearch slot config for provider + model
+    from ouroboros.llm import LLMClient
+    llm = LLMClient()
+    slot_config = llm.get_slot_config("websearch")
+    provider_config = llm.get_provider_config(slot_config.provider_id)
+
+    # Determine API key: slot provider > legacy env var
+    api_key = ""
+    if provider_config:
+        api_key = provider_config.api_key
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         return json.dumps({
-            "error": "OPENAI_API_KEY not set. Configure it in Settings to enable web search."
+            "error": "No API key configured for websearch provider. Configure it in Settings."
         })
 
-    active_model = model or os.environ.get("OUROBOROS_WEBSEARCH_MODEL", DEFAULT_SEARCH_MODEL)
+    # Determine base URL (for non-OpenAI providers with compatible API)
+    base_url = None
+    if provider_config and provider_config.provider_type != "openai":
+        base_url = provider_config.base_url
+
+    active_model = model or slot_config.model_id or os.environ.get("OUROBOROS_WEBSEARCH_MODEL", DEFAULT_SEARCH_MODEL)
     active_context = search_context_size or DEFAULT_SEARCH_CONTEXT_SIZE
     active_effort = reasoning_effort or DEFAULT_REASONING_EFFORT
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = OpenAI(**client_kwargs)
         resp = client.responses.create(
             model=active_model,
             tools=[{
