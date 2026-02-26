@@ -5,7 +5,7 @@
 <h1 align="center">Ouroboros Desktop</h1>
 
 <p align="center">
-  <strong>v3.4.0</strong> &mdash; A self-modifying AI agent with multi-provider architecture
+  <strong>v3.5.0</strong> &mdash; A self-modifying AI agent with multi-provider architecture
 </p>
 
 <p align="center">

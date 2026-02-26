@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.5.0] - 2026-02-27
+
+### Fixed (Critical)
+- **Masked API key overwrite** — Settings save no longer overwrites real API keys with masked values (`sk-or...` / `***`)
+- **Client cache invalidation** — Added `invalidate_clients()` module-level function; LLM clients now refresh after settings change
+- **TOCTOU race condition** — `_get_client_for_provider()` uses full lock scope to prevent duplicate client creation
+- **SSRF protection** — `POST /api/providers/test` now only allows HTTPS or localhost URLs
+- **Upload filename sanitization** — `pathlib.Path.name` strips directory traversal from uploaded filenames
+- **File type detection** — Image detection runs before text detection (`elif` not `if`) to prevent double processing
+
+### Added
+- **Thinking/Reasoning display** — Collapsible `<details>` block shows AI reasoning process with duration
+- **Tool call progress** — Inline status indicators (running/done/error) during tool execution
+- **Token budget bar** — Shows prompt/completion/cached token counts and cost after each response
+- **Local vendor bundling** — All JS/CSS dependencies (marked.js, highlight.js, DOMPurify, KaTeX) bundled in `web/vendor/` instead of CDN, eliminating supply chain risk
+- **Error toast notifications** — All `console.error` calls now trigger user-visible toast messages
+
+### Changed
+- **Dashboard polling** — Only polls `/api/state` when dashboard page is active
+- **Matrix rain** — Uses `requestAnimationFrame` with `document.hidden` check instead of `setInterval`
+- **Settings deep merge** — Skips API key fields containing `"..."` or `"***"` to protect real credentials
+
+---
+
 ## [3.4.0] - 2026-02-26
 
 ### Added
