@@ -188,39 +188,40 @@ class LLMClient:
 
     def _get_client_for_provider(self, provider_id: str) -> Any:
         """Get or create an OpenAI client for a provider. Thread-safe."""
+        # Fast path: check cache without full lock
         with self._client_lock:
             if provider_id in self._clients:
                 return self._clients[provider_id]
 
-        config = self.get_provider_config(provider_id)
-        if not config:
-            # Fallback: try legacy OpenRouter client
-            log.warning(f"Provider '{provider_id}' not configured, falling back to legacy")
-            config = ProviderConfig(
-                provider_id="openrouter",
-                name="OpenRouter (legacy)",
-                provider_type="openrouter",
-                base_url=self._legacy_base_url,
-                api_key=self._legacy_api_key,
+            # Still under lock: create the client to prevent TOCTOU race
+            config = self.get_provider_config(provider_id)
+            if not config:
+                # Fallback: try legacy OpenRouter client
+                log.warning(f"Provider '{provider_id}' not configured, falling back to legacy")
+                config = ProviderConfig(
+                    provider_id="openrouter",
+                    name="OpenRouter (legacy)",
+                    provider_type="openrouter",
+                    base_url=self._legacy_base_url,
+                    api_key=self._legacy_api_key,
+                )
+
+            from openai import OpenAI
+            extra_headers = {}
+            if config.provider_type == "openrouter":
+                extra_headers = {
+                    "HTTP-Referer": "https://ouroboros.local/",
+                    "X-Title": "Ouroboros",
+                }
+
+            client = OpenAI(
+                base_url=config.base_url,
+                api_key=config.api_key or "no-key",
+                default_headers=extra_headers if extra_headers else None,
             )
 
-        from openai import OpenAI
-        extra_headers = {}
-        if config.provider_type == "openrouter":
-            extra_headers = {
-                "HTTP-Referer": "https://ouroboros.local/",
-                "X-Title": "Ouroboros",
-            }
-
-        client = OpenAI(
-            base_url=config.base_url,
-            api_key=config.api_key or "no-key",
-            default_headers=extra_headers if extra_headers else None,
-        )
-
-        with self._client_lock:
             self._clients[provider_id] = client
-        return client
+            return client
 
     def invalidate_client(self, provider_id: str) -> None:
         """Remove cached client (e.g., after settings change)."""
@@ -631,3 +632,26 @@ class LLMClient:
         if light and light != main and light != code:
             models.append(light)
         return models
+
+
+# ---------------------------------------------------------------------------
+# Module-level client invalidation (called by server.py on settings save)
+# ---------------------------------------------------------------------------
+
+_global_client: Optional[LLMClient] = None
+
+
+def get_global_client() -> LLMClient:
+    """Get or create the global LLMClient singleton."""
+    global _global_client
+    if _global_client is None:
+        _global_client = LLMClient()
+    return _global_client
+
+
+def invalidate_clients() -> None:
+    """Invalidate all cached provider clients. Call after settings change."""
+    global _global_client
+    if _global_client is not None:
+        _global_client.invalidate_all()
+    _global_client = None

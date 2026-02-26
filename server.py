@@ -66,7 +66,6 @@ _restart_requested = threading.Event()
 _ws_clients: List[WebSocket] = []
 _ws_lock = threading.Lock()
 
-
 async def broadcast_ws(msg: dict) -> None:
     """Send a message to all connected WebSocket clients."""
     data = json.dumps(msg, ensure_ascii=False, default=str)
@@ -86,7 +85,6 @@ async def broadcast_ws(msg: dict) -> None:
                 except ValueError:
                     pass
 
-
 def broadcast_ws_sync(msg: dict) -> None:
     """Thread-safe sync wrapper for broadcasting.
 
@@ -101,7 +99,6 @@ def broadcast_ws_sync(msg: dict) -> None:
         asyncio.run_coroutine_threadsafe(broadcast_ws(msg), loop)
     except RuntimeError:
         pass
-
 
 # ---------------------------------------------------------------------------
 # Settings (single source of truth: ouroboros.config)
@@ -563,23 +560,23 @@ async def api_settings_post(request: Request) -> JSONResponse:
     try:
         body = await request.json()
         current = load_settings()
-        # Update flat keys from SETTINGS_DEFAULTS
-        for key in _SETTINGS_DEFAULTS:
+        for key in _SETTINGS_DEFAULTS:  # Update flat keys
             if key in body and key not in ("providers", "model_slots"):
                 current[key] = body[key]
-        # Deep merge providers: update matching keys, add new ones
+        # Deep merge providers (skip masked API keys to prevent overwriting real keys)
         if "providers" in body and isinstance(body["providers"], dict):
-            if "providers" not in current or not isinstance(current.get("providers"), dict):
-                current["providers"] = {}
+            current.setdefault("providers", {})
             for pid, pdata in body["providers"].items():
                 if pid in current["providers"]:
-                    current["providers"][pid].update(pdata)
+                    for k, v in pdata.items():
+                        if k == "api_key" and isinstance(v, str) and ("..." in v or v == "***"):
+                            continue
+                        current["providers"][pid][k] = v
                 else:
                     current["providers"][pid] = pdata
         # Deep merge model_slots
         if "model_slots" in body and isinstance(body["model_slots"], dict):
-            if "model_slots" not in current or not isinstance(current.get("model_slots"), dict):
-                current["model_slots"] = {}
+            current.setdefault("model_slots", {})
             for slot, sdata in body["model_slots"].items():
                 if slot in current["model_slots"]:
                     current["model_slots"][slot].update(sdata)
@@ -850,6 +847,12 @@ async def api_providers_test(request: Request) -> JSONResponse:
     api_key = body.get("api_key", "")
     if not base_url:
         return JSONResponse({"status": "error", "error": "base_url required"})
+    # SSRF protection: only allow HTTPS or localhost URLs
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    is_localhost = parsed.hostname in ("127.0.0.1", "localhost", "0.0.0.0", "::1")
+    if parsed.scheme not in ("https",) and not is_localhost:
+        return JSONResponse({"status": "error", "error": "Only HTTPS or localhost URLs allowed"})
     try:
         from openai import OpenAI
         client = OpenAI(base_url=base_url, api_key=api_key or "no-key", timeout=10)
@@ -876,26 +879,25 @@ async def api_upload(request: Request) -> JSONResponse:
     file = form.get("file")
     if not file:
         return JSONResponse({"error": "file required"}, status_code=400)
-    content, filename = await file.read(), (file.filename or "uploaded_file")
+    content, filename = await file.read(), pathlib.Path(file.filename or "uploaded_file").name
     size = len(content)
     if size > 10 * 1024 * 1024:
         return JSONResponse({"error": "File too large (max 10MB)"}, status_code=400)
     ext = pathlib.Path(filename).suffix.lower()
-    _TEXT_EXT = {'.txt','.md','.py','.js','.ts','.json','.yaml','.yml','.toml','.cfg','.ini','.sh',
-                 '.bash','.css','.html','.xml','.csv','.log','.sql','.rs','.go','.java','.c','.cpp',
-                 '.h','.rb','.php','.swift','.kt','.r','.env','.gitignore','.dockerfile'}
+    _TEXT_EXT = {'.txt','.md','.py','.js','.ts','.json','.yaml','.yml','.toml','.cfg','.ini','.sh','.bash',
+                 '.css','.html','.xml','.csv','.log','.sql','.rs','.go','.java','.c','.cpp','.h','.rb','.php'}
     _IMG_EXT = {'.png','.jpg','.jpeg','.gif','.webp','.bmp','.svg'}
+    _MIME = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif',
+             '.webp':'image/webp','.bmp':'image/bmp','.svg':'image/svg+xml'}
     result: Dict[str, Any] = {"filename": filename, "size": size, "type": "unknown"}
-    if ext in _TEXT_EXT or size < 512 * 1024:
+    if ext in _IMG_EXT:
+        result.update(type="image", base64=base64.b64encode(content).decode('ascii'), mime=_MIME.get(ext, 'application/octet-stream'))
+    elif ext in _TEXT_EXT or size < 512 * 1024:
         try:
             text = content.decode('utf-8')
             result.update(type="text", content=text[:50000], truncated=len(text) > 50000)
         except UnicodeDecodeError:
             pass
-    if ext in _IMG_EXT:
-        _mime = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif',
-                 '.webp':'image/webp','.bmp':'image/bmp','.svg':'image/svg+xml'}
-        result.update(type="image", base64=base64.b64encode(content).decode('ascii'), mime=_mime.get(ext, 'application/octet-stream'))
     return JSONResponse(result)
 
 
@@ -933,7 +935,6 @@ routes = [
 ]
 
 from contextlib import asynccontextmanager
-
 
 @asynccontextmanager
 async def lifespan(app):
