@@ -1086,3 +1086,54 @@ body {
     transition: all 0.2s;
 }
 .btn-export:hover { color: var(--accent); background: rgba(255,255,255,0.05); }
+
+/* Thinking/Reasoning block */
+.thinking-block {
+    border-left: 2px solid var(--text-secondary);
+    padding: 4px 0 4px 12px;
+    margin: 6px 0;
+    font-size: 0.88em;
+    color: var(--text-secondary);
+}
+.thinking-block summary {
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+.thinking-block summary:hover { opacity: 1; }
+.thinking-content {
+    margin-top: 6px;
+    white-space: pre-wrap;
+    font-family: 'SF Mono', monospace;
+    font-size: 0.9em;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Tool progress */
+.tool-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 2px 0;
+}
+.tool-name { font-family: 'SF Mono', monospace; }
+
+/* Token budget bar */
+.token-budget {
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 16px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--divider);
+    background: var(--bg-card);
+}
+.token-cost { color: var(--amber); font-weight: 500; }

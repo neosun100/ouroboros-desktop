@@ -189,6 +189,7 @@ async function playTTS(btn, text) {
         audio.play();
     } catch(e) {
         console.error('TTS error:', e);
+        showToast('TTS playback failed', 'error');
         btn.classList.remove('playing');
     }
 }
@@ -238,7 +239,7 @@ function initChat() {
 
     const _chatHistory = [];
 
-    function addMessage(text, role, markdown = false) {
+    function addMessage(text, role, markdown = false, options = {}) {
         _chatHistory.push({ text, role });
         const bubble = document.createElement('div');
         bubble.className = `chat-bubble ${role}`;
@@ -247,8 +248,16 @@ function initChat() {
         const ttsBtn = role === 'assistant'
             ? `<button class="msg-tts-btn" title="Read aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>`
             : '';
+        // Prepend thinking block if present
+        const thinkingHtml = options.thinking ? renderThinkingBlock(options.thinking, options.thinkingDuration) : '';
+        // Tool progress blocks if present
+        const toolsHtml = (options.toolCalls || []).map(tc =>
+            renderToolProgress(tc.name || tc.function?.name || 'unknown', tc.status || 'done')
+        ).join('');
         bubble.innerHTML = `
             <div class="sender">${sender}${ttsBtn}</div>
+            ${thinkingHtml}
+            ${toolsHtml}
             <div class="message">${rendered}</div>
         `;
         // Attach TTS click handler
@@ -325,10 +334,18 @@ function initChat() {
     ws.on('chat', (msg) => {
         if (msg.role === 'assistant') {
             hideTyping();
-            const bubble = addMessage(msg.content, 'assistant', msg.markdown);
+            const bubble = addMessage(msg.content, 'assistant', msg.markdown, {
+                thinking: msg.thinking || msg.reasoning,
+                thinkingDuration: msg.thinking_duration || msg.reasoning_duration,
+                toolCalls: msg.tool_calls,
+            });
             if (state.activePage !== 'chat') {
                 state.unreadCount++;
                 updateUnreadBadge();
+            }
+            // Update token budget bar if usage data present
+            if (msg.usage) {
+                updateTokenBudget(msg.usage);
             }
             // Auto-read TTS if enabled
             if (state.ttsAutoRead) {
@@ -436,6 +453,7 @@ function setupSTT() {
                     }
                 } catch(e) {
                     console.error('STT error:', e);
+                    showToast('Speech-to-text failed', 'error');
                 }
                 btn.classList.remove('processing');
             };
@@ -443,6 +461,7 @@ function setupSTT() {
             btn.classList.add('recording');
         } catch(e) {
             console.error('Mic access error:', e);
+            showToast('Microphone access denied', 'error');
         }
     });
 
@@ -636,7 +655,10 @@ function initDashboard() {
     }
 
     updateDashboard();
-    setInterval(updateDashboard, 3000);
+    // Only poll when dashboard page is active
+    setInterval(() => {
+        if (state.activePage === 'dashboard') updateDashboard();
+    }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -1311,6 +1333,7 @@ function initSettings() {
             }
         } catch (e) {
             console.error('Failed to load settings:', e);
+            showToast('Failed to load settings', 'error');
         }
     }
 
@@ -1732,6 +1755,47 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Render a collapsible thinking/reasoning block
+function renderThinkingBlock(thinkingText, durationMs) {
+    if (!thinkingText) return '';
+    const sec = durationMs ? (durationMs / 1000).toFixed(1) : '?';
+    return `<details class="thinking-block">
+        <summary><span class="thinking-indicator">💭</span> Thought for ${sec}s</summary>
+        <div class="thinking-content">${escapeHtml(thinkingText)}</div>
+    </details>`;
+}
+
+// Tool progress indicator for inline display during tool execution
+function renderToolProgress(toolName, status) {
+    return `<div class="tool-progress">
+        <span class="tool-icon">⚙️</span>
+        <span class="tool-name">${escapeHtml(toolName)}</span>
+        <span class="tool-status ${status}">${status === 'running' ? '⏳' : status === 'done' ? '✅' : '❌'}</span>
+    </div>`;
+}
+
+// Token budget bar — update after each assistant message with usage data
+function updateTokenBudget(usage) {
+    let bar = document.getElementById('token-budget');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'token-budget';
+        bar.className = 'token-budget';
+        const chatArea = document.getElementById('chat-messages');
+        if (chatArea) chatArea.parentElement.appendChild(bar);
+    }
+    const prompt = usage.prompt_tokens || 0;
+    const completion = usage.completion_tokens || 0;
+    const total = prompt + completion;
+    const cached = usage.cached_tokens || 0;
+    const cost = usage.cost || 0;
+    bar.innerHTML = `
+        <span class="token-info">Tokens: ${total.toLocaleString()} (${prompt.toLocaleString()} in / ${completion.toLocaleString()} out${cached ? ' / ' + cached.toLocaleString() + ' cached' : ''})</span>
+        ${cost > 0 ? '<span class="token-cost">$' + cost.toFixed(4) + '</span>' : ''}
+    `;
+    bar.style.display = 'flex';
+}
+
 function renderMarkdown(text) {
     if (!text) return '';
 
@@ -2048,7 +2112,16 @@ function initMatrixRain() {
         }
     }
 
-    setInterval(draw, 66);
+    // Use requestAnimationFrame with visibility check for efficiency
+    let lastFrame = 0;
+    function matrixDraw(ts) {
+        if (document.hidden) { requestAnimationFrame(matrixDraw); return; }
+        if (ts - lastFrame < 66) { requestAnimationFrame(matrixDraw); return; }
+        lastFrame = ts;
+        draw();
+        requestAnimationFrame(matrixDraw);
+    }
+    requestAnimationFrame(matrixDraw);
 }
 
 // ---------------------------------------------------------------------------
