@@ -21,7 +21,7 @@
 
 An AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Use **any OpenAI-compatible endpoint**, configure **different models for every scenario**, and maintain **full control** over your AI stack.
 
-> **Fork note:** Enhanced fork of [joi-lab/ouroboros-desktop](https://github.com/joi-lab/ouroboros-desktop) with multi-provider support, custom endpoint configuration, and 262 tests.
+> **Fork note:** Enhanced fork of [joi-lab/ouroboros-desktop](https://github.com/joi-lab/ouroboros-desktop) with multi-provider support, custom endpoint configuration, and 278 tests.
 
 ---
 
@@ -35,7 +35,7 @@ An AI agent that writes its own code, rewrites its own mind, and evolves autonom
 |---------|-------------|
 | **Multi-Provider** | Each scenario routes to its own provider + model independently |
 | **Self-Modification** | Reads and rewrites its own source code — every change is a git commit |
-| **6 Model Slots** | Main, Code, Light, Fallback, Web Search, Vision — each configurable |
+| **8 Model Slots** | Main, Code, Light, Fallback, Web Search, Vision, TTS, STT — each configurable |
 | **Any Endpoint** | OpenRouter, OpenAI, Anthropic, Ollama, LiteLLM, vLLM, Groq, etc. |
 | **Constitution** | Governed by [BIBLE.md](BIBLE.md) — 9 philosophical principles |
 | **Dual-Layer Safety** | LLM safety supervisor intercepts every mutative command |
@@ -105,7 +105,7 @@ export OUROBOROS_NOTARIZE_PROFILE="your-profile"
 make build-release
 ```
 
-The build script automatically: checks environment → downloads embedded Python → installs deps → runs 246 tests → PyInstaller → signs → creates DMG.
+The build script automatically: checks environment → downloads embedded Python → installs deps → runs 278 tests → PyInstaller → signs → creates DMG.
 
 ---
 
@@ -126,7 +126,7 @@ Ouroboros Desktop
 │   └── tools/               48 auto-discovered tool plugins
 ├── supervisor/              Process management, workers, queue
 ├── prompts/                 SYSTEM.md, SAFETY.md, CONSCIOUSNESS.md
-├── tests/                   262 tests (unit + integration + E2E)
+├── tests/                   278 tests (unit + integration + E2E)
 └── scripts/
     ├── build_mac.sh         One-click macOS packaging
     └── download_python_standalone.sh
